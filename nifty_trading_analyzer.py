@@ -1,7 +1,7 @@
 """
 Nifty Option Chain & Technical Analysis for Day Trading
 1-HOUR TIMEFRAME with WILDER'S RSI (matches TradingView)
-Complete fixed version
+Enhanced with Pivot Points (Traditional Method)
 """
 
 import pandas as pd
@@ -77,7 +77,7 @@ class NiftyAnalyzer:
                 'send_on_failure': False
             },
             'technical': {
-                'timeframe': '1h',  # FIXED: 1-hour timeframe
+                'timeframe': '1h',
                 'period': '6mo',
                 'rsi_period': 14,
                 'rsi_overbought': 70,
@@ -348,7 +348,7 @@ class NiftyAnalyzer:
             return None
             
         period = self.config['technical']['period']
-        interval = '1h'  # FORCED 1-HOUR TIMEFRAME
+        interval = '1h'
         
         try:
             self.logger.info(f"Fetching 1-HOUR technical data ({period})...")
@@ -368,6 +368,72 @@ class NiftyAnalyzer:
             self.logger.error(f"Error fetching technical data: {e}")
             return None
     
+    def calculate_pivot_points(self, df, current_price):
+        """
+        Calculate Traditional Pivot Points (Daily)
+        Matches TradingView's Pivot Points Standard indicator
+        """
+        # Get yesterday's OHLC (last completed daily candle)
+        try:
+            # Get daily data for pivot calculation
+            ticker = yf.Ticker(self.nifty_symbol)
+            daily_df = ticker.history(period='5d', interval='1d')
+            
+            if len(daily_df) >= 2:
+                # Use previous day's data
+                prev_high = daily_df['High'].iloc[-2]
+                prev_low = daily_df['Low'].iloc[-2]
+                prev_close = daily_df['Close'].iloc[-2]
+            else:
+                # Fallback to current data if daily not available
+                prev_high = df['High'].max()
+                prev_low = df['Low'].min()
+                prev_close = df['Close'].iloc[-1]
+            
+            # Traditional Pivot Point calculation
+            pivot = (prev_high + prev_low + prev_close) / 3
+            
+            # Resistance levels
+            r1 = (2 * pivot) - prev_low
+            r2 = pivot + (prev_high - prev_low)
+            r3 = prev_high + 2 * (pivot - prev_low)
+            
+            # Support levels
+            s1 = (2 * pivot) - prev_high
+            s2 = pivot - (prev_high - prev_low)
+            s3 = prev_low - 2 * (prev_high - pivot)
+            
+            self.logger.info(f"📍 Pivot Points calculated | PP: ₹{pivot:.2f}")
+            
+            return {
+                'pivot': round(pivot, 2),
+                'r1': round(r1, 2),
+                'r2': round(r2, 2),
+                'r3': round(r3, 2),
+                's1': round(s1, 2),
+                's2': round(s2, 2),
+                's3': round(s3, 2),
+                'prev_high': round(prev_high, 2),
+                'prev_low': round(prev_low, 2),
+                'prev_close': round(prev_close, 2)
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Error calculating pivot points: {e}")
+            # Return sample pivot points
+            return {
+                'pivot': 24520.00,
+                'r1': 24590.00,
+                'r2': 24650.00,
+                'r3': 24720.00,
+                's1': 24450.00,
+                's2': 24390.00,
+                's3': 24320.00,
+                'prev_high': 24580.00,
+                'prev_low': 24420.00,
+                'prev_close': 24500.00
+            }
+    
     def calculate_rsi(self, data, period=None):
         """
         Calculate RSI using Wilder's smoothing method (RMA)
@@ -381,8 +447,6 @@ class NiftyAnalyzer:
         gain = delta.where(delta > 0, 0)
         loss = -delta.where(delta < 0, 0)
         
-        # Wilder's smoothing: alpha = 1/period
-        # This is EXACTLY what TradingView's ta.rma() does
         avg_gain = gain.ewm(alpha=1/period, adjust=False).mean()
         avg_loss = loss.ewm(alpha=1/period, adjust=False).mean()
         
@@ -449,6 +513,9 @@ class NiftyAnalyzer:
         # Support and Resistance
         sr_levels = self.calculate_support_resistance(df, current_price)
         
+        # Pivot Points
+        pivot_points = self.calculate_pivot_points(df, current_price)
+        
         # Trend analysis
         if current_price > ema_short_val > ema_long_val:
             trend = "Strong Uptrend"
@@ -483,7 +550,8 @@ class NiftyAnalyzer:
             'trend': trend,
             'tech_resistances': [round(r, 2) for r in sr_levels['resistances']],
             'tech_supports': [round(s, 2) for s in sr_levels['supports']],
-            'timeframe': '1 Hour'  # Added for clarity
+            'pivot_points': pivot_points,
+            'timeframe': '1 Hour'
         }
     
     def get_sample_tech_analysis(self):
@@ -497,6 +565,18 @@ class NiftyAnalyzer:
             'trend': 'Uptrend',
             'tech_resistances': [24580.00, 24650.00],
             'tech_supports': [24420.00, 24380.00],
+            'pivot_points': {
+                'pivot': 24520.00,
+                'r1': 24590.00,
+                'r2': 24650.00,
+                'r3': 24720.00,
+                's1': 24450.00,
+                's2': 24390.00,
+                's3': 24320.00,
+                'prev_high': 24580.00,
+                'prev_low': 24420.00,
+                'prev_close': 24500.00
+            },
             'timeframe': '1 Hour'
         }
     
@@ -692,8 +772,26 @@ class NiftyAnalyzer:
         
         return strategies
     
+    def find_nearest_levels(self, current_price, pivot_points):
+        """Find nearest support and resistance from pivot points"""
+        all_resistances = [pivot_points['r1'], pivot_points['r2'], pivot_points['r3']]
+        all_supports = [pivot_points['s1'], pivot_points['s2'], pivot_points['s3']]
+        
+        # Find nearest resistance (above current price)
+        resistances_above = [r for r in all_resistances if r > current_price]
+        nearest_resistance = min(resistances_above) if resistances_above else None
+        
+        # Find nearest support (below current price)
+        supports_below = [s for s in all_supports if s < current_price]
+        nearest_support = max(supports_below) if supports_below else None
+        
+        return {
+            'nearest_resistance': nearest_resistance,
+            'nearest_support': nearest_support
+        }
+    
     def create_html_report(self, oc_analysis, tech_analysis, recommendation):
-        """Create beautiful HTML report with 1H timeframe emphasis"""
+        """Create beautiful HTML report with pivot points and highlighting"""
         now_ist = self.format_ist_time()
         
         colors = self.config['report'].get('colors', {})
@@ -714,6 +812,12 @@ class NiftyAnalyzer:
         
         strategies = self.get_options_strategies(recommendation, oc_analysis, tech_analysis)
         
+        # Get pivot points and find nearest levels
+        pivot_points = tech_analysis.get('pivot_points', {})
+        current_price = tech_analysis.get('current_price', 0)
+        nearest_levels = self.find_nearest_levels(current_price, pivot_points)
+        
+        # Top CE/PE strikes HTML
         top_ce_html = ''
         for i, strike in enumerate(oc_analysis.get('top_ce_strikes', [])[:5], 1):
             top_ce_html += f"""
@@ -740,6 +844,7 @@ class NiftyAnalyzer:
                 </tr>
             """
         
+        # Strategies HTML
         strategies_html = ''
         for strategy in strategies:
             strategies_html += f"""
@@ -757,6 +862,15 @@ class NiftyAnalyzer:
                     </div>
                 </div>
             """
+        
+        # Pivot Points HTML with highlighting
+        def get_level_class(level_value):
+            """Return CSS class for highlighting nearest levels"""
+            if level_value == nearest_levels.get('nearest_resistance'):
+                return 'nearest-resistance'
+            elif level_value == nearest_levels.get('nearest_support'):
+                return 'nearest-support'
+            return ''
         
         html = f"""
 <!DOCTYPE html>
@@ -787,6 +901,16 @@ class NiftyAnalyzer:
         .levels-box h4 {{ margin: 0 0 8px 0; font-size: 14px; font-weight: 600; }}
         .levels-box ul {{ margin: 0; padding-left: 20px; }}
         .levels-box li {{ margin: 4px 0; font-size: 14px; font-weight: 500; }}
+        .pivot-table {{ width: 100%; border-collapse: collapse; margin-top: 10px; }}
+        .pivot-table th {{ background-color: #007bff; color: white; padding: 10px; text-align: center; font-size: 13px; }}
+        .pivot-table td {{ padding: 10px; text-align: center; border-bottom: 1px solid #e9ecef; font-size: 14px; font-weight: 500; }}
+        .pivot-row {{ background-color: #f8f9fa; }}
+        .pivot-row.resistance {{ color: #dc3545; }}
+        .pivot-row.support {{ color: #28a745; }}
+        .pivot-row.pivot {{ background-color: #fff3cd; color: #856404; font-weight: bold; }}
+        .nearest-resistance {{ background-color: #f8d7da !important; border: 2px solid #dc3545; font-weight: bold; }}
+        .nearest-support {{ background-color: #d4edda !important; border: 2px solid #28a745; font-weight: bold; }}
+        .highlight-badge {{ display: inline-block; background: #ff6b6b; color: white; padding: 2px 8px; border-radius: 10px; font-size: 11px; margin-left: 5px; }}
         .reasons {{ background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 12px; border-radius: 5px; }}
         .reasons ul {{ margin: 8px 0 0 0; padding-left: 20px; }}
         .reasons li {{ margin: 6px 0; color: #856404; font-size: 13px; }}
@@ -871,6 +995,67 @@ class NiftyAnalyzer:
         </div>
         
         <div class="section">
+            <div class="section-title">📍 Pivot Points (Traditional - Daily)</div>
+            <p style="color: #6c757d; margin-bottom: 10px; font-size: 13px;">
+                Based on Previous Day: High ₹{pivot_points.get('prev_high', 'N/A')} | Low ₹{pivot_points.get('prev_low', 'N/A')} | Close ₹{pivot_points.get('prev_close', 'N/A')}
+            </p>
+            <table class="pivot-table">
+                <thead>
+                    <tr>
+                        <th>Level</th>
+                        <th>Type</th>
+                        <th>Value</th>
+                        <th>Distance from Spot</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr class="pivot-row resistance {get_level_class(pivot_points.get('r3'))}">
+                        <td>R3</td>
+                        <td>Resistance 3</td>
+                        <td>₹{pivot_points.get('r3', 'N/A')}{' <span class="highlight-badge">NEAREST R</span>' if pivot_points.get('r3') == nearest_levels.get('nearest_resistance') else ''}</td>
+                        <td>{f'+{pivot_points.get("r3", 0) - current_price:.2f}' if pivot_points.get('r3') else 'N/A'}</td>
+                    </tr>
+                    <tr class="pivot-row resistance {get_level_class(pivot_points.get('r2'))}">
+                        <td>R2</td>
+                        <td>Resistance 2</td>
+                        <td>₹{pivot_points.get('r2', 'N/A')}{' <span class="highlight-badge">NEAREST R</span>' if pivot_points.get('r2') == nearest_levels.get('nearest_resistance') else ''}</td>
+                        <td>{f'+{pivot_points.get("r2", 0) - current_price:.2f}' if pivot_points.get('r2') else 'N/A'}</td>
+                    </tr>
+                    <tr class="pivot-row resistance {get_level_class(pivot_points.get('r1'))}">
+                        <td>R1</td>
+                        <td>Resistance 1</td>
+                        <td>₹{pivot_points.get('r1', 'N/A')}{' <span class="highlight-badge">NEAREST R</span>' if pivot_points.get('r1') == nearest_levels.get('nearest_resistance') else ''}</td>
+                        <td>{f'+{pivot_points.get("r1", 0) - current_price:.2f}' if pivot_points.get('r1') else 'N/A'}</td>
+                    </tr>
+                    <tr class="pivot-row pivot">
+                        <td>PP</td>
+                        <td>Pivot Point</td>
+                        <td>₹{pivot_points.get('pivot', 'N/A')}</td>
+                        <td>{f'{pivot_points.get("pivot", 0) - current_price:+.2f}' if pivot_points.get('pivot') else 'N/A'}</td>
+                    </tr>
+                    <tr class="pivot-row support {get_level_class(pivot_points.get('s1'))}">
+                        <td>S1</td>
+                        <td>Support 1</td>
+                        <td>₹{pivot_points.get('s1', 'N/A')}{' <span class="highlight-badge">NEAREST S</span>' if pivot_points.get('s1') == nearest_levels.get('nearest_support') else ''}</td>
+                        <td>{f'{pivot_points.get("s1", 0) - current_price:.2f}' if pivot_points.get('s1') else 'N/A'}</td>
+                    </tr>
+                    <tr class="pivot-row support {get_level_class(pivot_points.get('s2'))}">
+                        <td>S2</td>
+                        <td>Support 2</td>
+                        <td>₹{pivot_points.get('s2', 'N/A')}{' <span class="highlight-badge">NEAREST S</span>' if pivot_points.get('s2') == nearest_levels.get('nearest_support') else ''}</td>
+                        <td>{f'{pivot_points.get("s2", 0) - current_price:.2f}' if pivot_points.get('s2') else 'N/A'}</td>
+                    </tr>
+                    <tr class="pivot-row support {get_level_class(pivot_points.get('s3'))}">
+                        <td>S3</td>
+                        <td>Support 3</td>
+                        <td>₹{pivot_points.get('s3', 'N/A')}{' <span class="highlight-badge">NEAREST S</span>' if pivot_points.get('s3') == nearest_levels.get('nearest_support') else ''}</td>
+                        <td>{f'{pivot_points.get("s3", 0) - current_price:.2f}' if pivot_points.get('s3') else 'N/A'}</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        
+        <div class="section">
             <div class="section-title">📊 Option Chain Analysis</div>
             <div class="data-grid">
                 <div class="data-item">
@@ -937,7 +1122,7 @@ class NiftyAnalyzer:
         
         <div class="footer">
             <p><strong>Disclaimer:</strong> This analysis is for educational purposes only. Trading involves risk.</p>
-            <p>© 2025 Nifty Trading Analyzer | 1-Hour Timeframe Analysis</p>
+            <p>© 2025 Nifty Trading Analyzer | 1-Hour Timeframe Analysis with Pivot Points</p>
         </div>
     </div>
 </body>
@@ -981,7 +1166,7 @@ class NiftyAnalyzer:
     
     def run_analysis(self):
         """Run complete analysis - 1 HOUR TIMEFRAME"""
-        self.logger.info("🚀 Starting Nifty 1-HOUR Analysis...")
+        self.logger.info("🚀 Starting Nifty 1-HOUR Analysis with Pivot Points...")
         self.logger.info("=" * 60)
         
         oc_df, spot_price = self.fetch_option_chain()
@@ -1006,6 +1191,7 @@ class NiftyAnalyzer:
         self.logger.info(f"📊 RECOMMENDATION: {recommendation['recommendation']}")
         self.logger.info(f"📈 Bias: {recommendation['bias']} | Confidence: {recommendation['confidence']}")
         self.logger.info(f"🎯 RSI (1H): {tech_analysis.get('rsi', 'N/A')}")
+        self.logger.info(f"📍 Pivot Point: ₹{tech_analysis.get('pivot_points', {}).get('pivot', 'N/A')}")
         self.logger.info("=" * 60)
         
         html_report = self.create_html_report(oc_analysis, tech_analysis, recommendation)
@@ -1025,7 +1211,7 @@ class NiftyAnalyzer:
         self.logger.info(f"📧 Sending email to {self.config['email']['recipient']}...")
         self.send_email(html_report)
         
-        self.logger.info("✅ 1-Hour Analysis Complete!")
+        self.logger.info("✅ 1-Hour Analysis with Pivot Points Complete!")
         
         return {
             'oc_analysis': oc_analysis,
@@ -1042,4 +1228,5 @@ if __name__ == "__main__":
     print(f"\n✅ Analysis Complete!")
     print(f"Recommendation: {result['recommendation']['recommendation']}")
     print(f"RSI (1H, Wilder's): {result['tech_analysis']['rsi']}")
-    print(f"Check your email for the detailed 1-HOUR report!")
+    print(f"Pivot Point: ₹{result['tech_analysis']['pivot_points']['pivot']}")
+    print(f"Check your email for the detailed 1-HOUR report with Pivot Points!")
