@@ -1,4 +1,4 @@
-name: Nifty Trading Analyzer
+name: Nifty Trading Analyzer (Deploy to gh-pages)
 
 on:
   schedule:
@@ -25,7 +25,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # required for branch creation
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -52,122 +52,4 @@ jobs:
             send_on_failure: false
           
           technical:
-            timeframe: "1h"
-            period: "6mo"
-            rsi_period: 14
-            rsi_overbought: 70
-            rsi_oversold: 30
-            ema_short: 20
-            ema_long: 50
-            num_support_levels: 2
-            num_resistance_levels: 2
-          
-          option_chain:
-            pcr_bullish: 1.0
-            pcr_very_bullish: 1.2
-            pcr_bearish: 1.0
-            pcr_very_bearish: 0.8
-            strike_range: 500
-            min_oi: 100000
-          
-          recommendation:
-            strong_buy_threshold: 3
-            buy_threshold: 1
-            sell_threshold: -1
-            strong_sell_threshold: -3
-          
-          report:
-            title: "NIFTY DAY TRADING ANALYSIS"
-            save_local: true
-            local_dir: "./reports"
-            filename_format: "nifty_analysis_%Y%m%d_%H%M%S.html"
-            colors:
-              strong_buy: "#28a745"
-              buy: "#5cb85c"
-              neutral: "#ffc107"
-              sell: "#f0ad4e"
-              strong_sell: "#dc3545"
-          
-          data_source:
-            option_chain_source: "nse"
-            technical_source: "yahoo"
-            max_retries: 3
-            retry_delay: 2
-            timeout: 10
-            fallback_to_sample: true
-          
-          logging:
-            level: "INFO"
-            log_to_file: true
-            log_file: "./logs/nifty_analyzer.log"
-            format: "%(asctime)s - %(levelname)s - %(message)s"
-          
-          advanced:
-            verbose: true
-            debug: false
-            validate_data: true
-            min_data_points: 100
-          CONFIG_EOF
-
-      - name: Create directories
-        run: mkdir -p reports logs
-
-      - name: Run Analysis Script
-        run: |
-          if [ -f "nifty_analyzer_with_yaml.py" ]; then
-            python nifty_analyzer_with_yaml.py
-          elif [ -f "nifty_trading_analyzer.py" ]; then
-            python nifty_trading_analyzer.py
-          else
-            echo "ERROR: Python script not found!"
-            exit 1
-          fi
-        continue-on-error: true
-
-      - name: Create gh-pages branch if not exists
-        run: |
-          git fetch
-          if ! git rev-parse --verify origin/gh-pages; then
-            echo "⚠️ gh-pages branch not found — creating it now"
-            git checkout --orphan gh-pages
-            git rm -rf .
-            echo "<h1>Initializing GitHub Pages</h1>" > index.html
-            git add index.html
-            git commit -m "Initialize gh-pages"
-            git push origin gh-pages
-          else
-            echo "✅ gh-pages branch already exists"
-          fi
-
-      - name: Copy latest report into gh-pages branch
-        run: |
-          latest_report=$(ls -t reports/*.html 2>/dev/null | head -n 1 || echo "")
-          if [ -z "$latest_report" ]; then
-            echo "<h1>No report generated</h1>" > index.html
-          else
-            cp "$latest_report" index.html
-          fi
-
-          git checkout gh-pages
-          cp index.html index.html
-          git add index.html
-          git commit -m "Update report $(date)" || echo "No changes to commit"
-          git push origin gh-pages
-
-      - name: Upload Reports as Artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: nifty-reports-${{ github.run_number }}
-          path: reports/*.html
-          if-no-files-found: warn
-          retention-days: 30
-
-      - name: Upload Logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: analyzer-logs-${{ github.run_number }}
-          path: logs/*.log
-          if-no-files-found: warn
-          retention
+            timeframe
