@@ -1,50 +1,47 @@
-name: Nifty Trading Analyzer
+name: Nifty Trading Analyzer + GitHub Pages
 
 on:
   schedule:
-    # 9:15 AM IST (3:45 AM UTC)
     - cron: '45 3 * * 1-5'
-    # 12:00 PM IST (6:30 AM UTC)
     - cron: '30 6 * * 1-5'
-    # 3:00 PM IST (9:30 AM UTC)
     - cron: '30 9 * * 1-5'
-  
   workflow_dispatch:
-  
   push:
     branches:
       - main
       - master
 
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
 env:
   PYTHON_VERSION: '3.10'
 
 jobs:
-  analyze:
-    name: Run Nifty Analysis
+  analyze-and-deploy:
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-      
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          
           if [ -f "requirements.txt" ]; then
             pip install -r requirements.txt
           else
             pip install pandas numpy yfinance requests beautifulsoup4 pyyaml
           fi
-          
           pip list
-      
+
       - name: Create config.yml
         run: |
           cat > config.yml << 'CONFIG_EOF'
@@ -112,18 +109,12 @@ jobs:
             validate_data: true
             min_data_points: 100
           CONFIG_EOF
-          
-          echo "=== Config created ==="
-          # Mask sensitive data in output
-          sed 's/app_password: .*/app_password: "***HIDDEN***"/' config.yml
-      
+
       - name: Create directories
         run: |
           mkdir -p reports logs
-          ls -la
-      
-      - name: Run Analysis
-        id: analysis
+
+      - name: Run Analysis Script
         run: |
           if [ -f "nifty_analyzer_with_yaml.py" ]; then
             python nifty_analyzer_with_yaml.py
@@ -135,54 +126,39 @@ jobs:
             exit 1
           fi
         continue-on-error: true
-      
-      - name: Check outputs
-        if: always()
+
+      - name: Prepare GitHub Pages site
         run: |
-          echo "=== Generated Reports ==="
-          ls -lah reports/ 2>/dev/null || echo "No reports"
-          
-          echo "=== Logs ==="
-          ls -lah logs/ 2>/dev/null || echo "No logs"
-          
-          echo "=== Log Content ==="
-          cat logs/nifty_analyzer.log 2>/dev/null || echo "No log file"
-      
-      - name: Upload Reports
+          mkdir -p public
+          latest_report=$(ls -t reports/*.html 2>/dev/null | head -n 1 || echo "")
+          if [ -n "$latest_report" ]; then
+            cp "$latest_report" public/index.html
+          else
+            echo "<html><body><h2>No report generated</h2></body></html>" > public/index.html
+          fi
+
+      - name: Upload GitHub Pages Artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+      - name: Deploy to GitHub Pages
+        uses: actions/deploy-pages@v4
+
+      - name: Upload Reports as Artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: nifty-reports-${{ github.run_number }}
-          path: |
-            reports/*.html
-            *.html
+          path: reports/*.html
           if-no-files-found: warn
           retention-days: 30
-      
+
       - name: Upload Logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: analyzer-logs-${{ github.run_number }}
-          path: |
-            logs/*.log
+          path: logs/*.log
           if-no-files-found: warn
           retention-days: 7
-      
-      - name: Summary
-        if: always()
-        run: |
-          echo "## 📊 Nifty Analysis Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-          if [ -f "logs/nifty_analyzer.log" ]; then
-            echo "### 📝 Last Log Entries:" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            tail -20 logs/nifty_analyzer.log >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-          fi
-          
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 📁 Artifacts:" >> $GITHUB_STEP_SUMMARY
-          echo "- HTML Reports: \`nifty-reports-${{ github.run_number }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- Logs: \`analyzer-logs-${{ github.run_number }}\`" >> $GITHUB_STEP_SUMMARY
