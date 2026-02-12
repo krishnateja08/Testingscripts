@@ -1,4 +1,4 @@
-name: Nifty Trading Analyzer (Deploy to gh-pages)
+name: Nifty Trading Analyzer
 
 on:
   schedule:
