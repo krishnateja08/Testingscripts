@@ -965,74 +965,82 @@ class NiftyAnalyzer:
                     background-color: white;
                     border-radius: 10px;
                     box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-                    padding: 30px;
+                    padding: 25px;
                 }}
                 .header {{
                     text-align: center;
                     border-bottom: 3px solid #007bff;
-                    padding-bottom: 20px;
-                    margin-bottom: 30px;
+                    padding-bottom: 15px;
+                    margin-bottom: 20px;
                 }}
                 .header h1 {{
                     color: #007bff;
                     margin: 0;
-                    font-size: 32px;
+                    font-size: 28px;
                 }}
                 .timestamp {{
                     color: #6c757d;
-                    font-size: 14px;
-                    margin-top: 10px;
+                    font-size: 13px;
+                    margin-top: 8px;
                     font-weight: bold;
                 }}
                 .recommendation-box {{
                     background: linear-gradient(135deg, {rec_color} 0%, {rec_color}dd 100%);
                     color: white;
-                    padding: 25px;
+                    padding: 20px;
                     border-radius: 10px;
                     text-align: center;
-                    margin-bottom: 30px;
+                    margin-bottom: 25px;
                     box-shadow: 0 4px 8px rgba(0,0,0,0.2);
                 }}
                 .recommendation-box h2 {{
-                    margin: 0 0 10px 0;
-                    font-size: 36px;
+                    margin: 0 0 8px 0;
+                    font-size: 32px;
                     font-weight: bold;
                 }}
                 .recommendation-box .subtitle {{
-                    font-size: 18px;
+                    font-size: 16px;
                     opacity: 0.9;
                 }}
                 .section {{
-                    margin-bottom: 30px;
+                    margin-bottom: 25px;
                 }}
                 .section-title {{
                     background-color: #007bff;
                     color: white;
-                    padding: 12px 20px;
+                    padding: 10px 18px;
                     border-radius: 5px;
-                    font-size: 20px;
+                    font-size: 18px;
                     font-weight: bold;
-                    margin-bottom: 15px;
+                    margin-bottom: 12px;
                 }}
                 .data-grid {{
                     display: grid;
-                    grid-template-columns: repeat(2, 1fr);
-                    gap: 15px;
+                    grid-template-columns: repeat(3, 1fr);
+                    gap: 12px;
+                }}
+                @media (max-width: 768px) {{
+                    .data-grid {{
+                        grid-template-columns: repeat(2, 1fr);
+                    }}
                 }}
                 .data-item {{
                     background-color: #f8f9fa;
-                    padding: 15px;
+                    padding: 12px 15px;
                     border-radius: 8px;
                     border-left: 4px solid #007bff;
                 }}
                 .data-item .label {{
                     color: #6c757d;
-                    font-size: 14px;
-                    margin-bottom: 5px;
+                    font-size: 11px;
+                    margin-bottom: 4px;
+                    text-transform: uppercase;
+                    font-weight: 600;
+                    letter-spacing: 0.5px;
                 }}
                 .data-item .value {{
                     color: #212529;
-                    font-size: 20px;
+                    font-size: 18px;
                     font-weight: bold;
                 }}
                 .levels {{
@@ -1043,7 +1051,7 @@ class NiftyAnalyzer:
                 .levels-box {{
                     flex: 1;
                     background-color: #f8f9fa;
-                    padding: 15px;
+                    padding: 12px;
                     border-radius: 8px;
                 }}
                 .levels-box.resistance {{
@@ -1053,31 +1061,33 @@ class NiftyAnalyzer:
                     border-left: 4px solid #28a745;
                 }}
                 .levels-box h4 {{
-                    margin: 0 0 10px 0;
-                    font-size: 16px;
+                    margin: 0 0 8px 0;
+                    font-size: 14px;
+                    font-weight: 600;
                 }}
                 .levels-box ul {{
                     margin: 0;
                     padding-left: 20px;
                 }}
                 .levels-box li {{
-                    margin: 5px 0;
-                    font-size: 16px;
+                    margin: 4px 0;
+                    font-size: 14px;
                     font-weight: 500;
                 }}
                 .reasons {{
                     background-color: #fff3cd;
                     border-left: 4px solid #ffc107;
-                    padding: 15px;
+                    padding: 12px;
                     border-radius: 5px;
                 }}
                 .reasons ul {{
-                    margin: 10px 0 0 0;
+                    margin: 8px 0 0 0;
                     padding-left: 20px;
                 }}
                 .reasons li {{
-                    margin: 8px 0;
+                    margin: 6px 0;
                     color: #856404;
+                    font-size: 13px;
                 }}
                 .footer {{
                     text-align: center;
@@ -1089,10 +1099,11 @@ class NiftyAnalyzer:
                 }}
                 .signal-badge {{
                     display: inline-block;
-                    padding: 5px 15px;
-                    border-radius: 20px;
-                    font-size: 14px;
-                    margin: 5px;
+                    padding: 4px 12px;
+                    border-radius: 15px;
+                    font-size: 13px;
+                    margin: 4px;
+                    font-weight: 600;
                 }}
                 .bullish {{
                     background-color: #d4edda;
@@ -1105,19 +1116,21 @@ class NiftyAnalyzer:
                 .oi-table {{
                     width: 100%;
                     border-collapse: collapse;
-                    margin-top: 15px;
+                    margin-top: 10px;
+                    font-size: 13px;
                 }}
                 .oi-table th {{
                     background-color: #007bff;
                     color: white;
-                    padding: 10px;
+                    padding: 8px;
                     text-align: left;
-                    font-size: 14px;
+                    font-size: 12px;
+                    font-weight: 600;
                 }}
                 .oi-table td {{
-                    padding: 10px;
+                    padding: 8px;
                     border-bottom: 1px solid #e9ecef;
-                    font-size: 14px;
+                    font-size: 13px;
                 }}
                 .oi-table tr:hover {{
                     background-color: #f8f9fa;
@@ -1148,48 +1161,48 @@ class NiftyAnalyzer:
                 }}
                 .strategies-grid {{
                     display: grid;
-                    grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
-                    gap: 20px;
-                    margin-top: 20px;
+                    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+                    gap: 15px;
+                    margin-top: 15px;
                 }}
                 .strategy-card {{
                     background-color: #ffffff;
                     border: 2px solid #e9ecef;
                     border-radius: 8px;
-                    padding: 15px;
+                    padding: 12px;
                     transition: transform 0.2s, box-shadow 0.2s;
                 }}
                 .strategy-card:hover {{
-                    transform: translateY(-5px);
-                    box-shadow: 0 8px 16px rgba(0,0,0,0.1);
+                    transform: translateY(-3px);
+                    box-shadow: 0 6px 12px rgba(0,0,0,0.1);
                 }}
                 .strategy-header {{
                     border-bottom: 2px solid #007bff;
-                    padding-bottom: 10px;
-                    margin-bottom: 10px;
+                    padding-bottom: 8px;
+                    margin-bottom: 8px;
                 }}
                 .strategy-header h4 {{
                     margin: 0;
                     color: #007bff;
-                    font-size: 18px;
+                    font-size: 16px;
                 }}
                 .strategy-type {{
                     display: inline-block;
                     background-color: #e7f3ff;
                     color: #007bff;
-                    padding: 3px 10px;
-                    border-radius: 15px;
-                    font-size: 12px;
-                    margin-top: 5px;
+                    padding: 2px 8px;
+                    border-radius: 12px;
+                    font-size: 11px;
+                    margin-top: 4px;
                 }}
                 .strategy-body p {{
-                    margin: 8px 0;
-                    font-size: 14px;
-                    line-height: 1.5;
+                    margin: 6px 0;
+                    font-size: 13px;
+                    line-height: 1.4;
                 }}
                 .recommendation-stars {{
                     color: #ffc107;
-                    font-size: 16px;
+                    font-size: 14px;
                 }}
             </style>
         </head>
