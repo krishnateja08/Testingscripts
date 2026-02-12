@@ -1,46 +1,50 @@
-name: Nifty Trading Analyzer (Deploy to gh-pages)
+name: Nifty Trading Analyzer
 
 on:
   schedule:
+    # 9:15 AM IST (3:45 AM UTC)
     - cron: '45 3 * * 1-5'
+    # 12:00 PM IST (6:30 AM UTC)
     - cron: '30 6 * * 1-5'
+    # 3:00 PM IST (9:30 AM UTC)
     - cron: '30 9 * * 1-5'
+  
   workflow_dispatch:
+  
   push:
     branches:
       - main
       - master
 
-permissions:
-  contents: write
-
 env:
   PYTHON_VERSION: '3.10'
 
 jobs:
-  analyze-and-deploy:
+  analyze:
+    name: Run Nifty Analysis
     runs-on: ubuntu-latest
-
+    
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
+      
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-
+      
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
+          
           if [ -f "requirements.txt" ]; then
             pip install -r requirements.txt
           else
             pip install pandas numpy yfinance requests beautifulsoup4 pyyaml
           fi
-
+          
+          pip list
+      
       - name: Create config.yml
         run: |
           cat > config.yml << 'CONFIG_EOF'
@@ -52,4 +56,133 @@ jobs:
             send_on_failure: false
           
           technical:
-            timeframe
+            timeframe: "1h"
+            period: "6mo"
+            rsi_period: 14
+            rsi_overbought: 70
+            rsi_oversold: 30
+            ema_short: 20
+            ema_long: 50
+            num_support_levels: 2
+            num_resistance_levels: 2
+          
+          option_chain:
+            pcr_bullish: 1.0
+            pcr_very_bullish: 1.2
+            pcr_bearish: 1.0
+            pcr_very_bearish: 0.8
+            strike_range: 500
+            min_oi: 100000
+          
+          recommendation:
+            strong_buy_threshold: 3
+            buy_threshold: 1
+            sell_threshold: -1
+            strong_sell_threshold: -3
+          
+          report:
+            title: "NIFTY DAY TRADING ANALYSIS"
+            save_local: true
+            local_dir: "./reports"
+            filename_format: "nifty_analysis_%Y%m%d_%H%M%S.html"
+            colors:
+              strong_buy: "#28a745"
+              buy: "#5cb85c"
+              neutral: "#ffc107"
+              sell: "#f0ad4e"
+              strong_sell: "#dc3545"
+          
+          data_source:
+            option_chain_source: "nse"
+            technical_source: "yahoo"
+            max_retries: 3
+            retry_delay: 2
+            timeout: 10
+            fallback_to_sample: true
+          
+          logging:
+            level: "INFO"
+            log_to_file: true
+            log_file: "./logs/nifty_analyzer.log"
+            format: "%(asctime)s - %(levelname)s - %(message)s"
+          
+          advanced:
+            verbose: true
+            debug: false
+            validate_data: true
+            min_data_points: 100
+          CONFIG_EOF
+          
+          echo "=== Config created ==="
+          # Mask sensitive data in output
+          sed 's/app_password: .*/app_password: "***HIDDEN***"/' config.yml
+      
+      - name: Create directories
+        run: |
+          mkdir -p reports logs
+          ls -la
+      
+      - name: Run Analysis
+        id: analysis
+        run: |
+          if [ -f "nifty_analyzer_with_yaml.py" ]; then
+            python nifty_analyzer_with_yaml.py
+          elif [ -f "nifty_trading_analyzer.py" ]; then
+            python nifty_trading_analyzer.py
+          else
+            echo "ERROR: Python script not found!"
+            ls -la *.py
+            exit 1
+          fi
+        continue-on-error: true
+      
+      - name: Check outputs
+        if: always()
+        run: |
+          echo "=== Generated Reports ==="
+          ls -lah reports/ 2>/dev/null || echo "No reports"
+          
+          echo "=== Logs ==="
+          ls -lah logs/ 2>/dev/null || echo "No logs"
+          
+          echo "=== Log Content ==="
+          cat logs/nifty_analyzer.log 2>/dev/null || echo "No log file"
+      
+      - name: Upload Reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nifty-reports-${{ github.run_number }}
+          path: |
+            reports/*.html
+            *.html
+          if-no-files-found: warn
+          retention-days: 30
+      
+      - name: Upload Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: analyzer-logs-${{ github.run_number }}
+          path: |
+            logs/*.log
+          if-no-files-found: warn
+          retention-days: 7
+      
+      - name: Summary
+        if: always()
+        run: |
+          echo "## 📊 Nifty Analysis Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -f "logs/nifty_analyzer.log" ]; then
+            echo "### 📝 Last Log Entries:" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            tail -20 logs/nifty_analyzer.log >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📁 Artifacts:" >> $GITHUB_STEP_SUMMARY
+          echo "- HTML Reports: \`nifty-reports-${{ github.run_number }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Logs: \`analyzer-logs-${{ github.run_number }}\`" >> $GITHUB_STEP_SUMMARY
