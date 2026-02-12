@@ -1,4 +1,4 @@
-name: Nifty Trading Analyzer - Fixed
+name: Nifty Trading Analyzer
 
 on:
   schedule:
@@ -47,7 +47,7 @@ jobs:
       
       - name: Create config.yml
         run: |
-          cat > config.yml << 'EOF'
+          cat > config.yml << 'CONFIG_EOF'
           email:
             recipient: "${{ secrets.RECIPIENT_EMAIL }}"
             sender: "${{ secrets.SENDER_EMAIL }}"
@@ -111,7 +111,7 @@ jobs:
             debug: false
             validate_data: true
             min_data_points: 100
-          EOF
+          CONFIG_EOF
           
           echo "=== Config created ==="
           # Mask sensitive data in output
