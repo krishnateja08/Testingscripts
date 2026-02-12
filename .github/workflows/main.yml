@@ -1,0 +1,158 @@
+name: Nifty Trading Analyzer
+
+# Workflow triggers
+on:
+  # Run on schedule (cron format in UTC)
+  schedule:
+    # Run at 3:45 AM UTC (9:15 AM IST) - Market Open
+    - cron: '45 3 * * 1-5'
+    # Run at 6:30 AM UTC (12:00 PM IST) - Mid-day
+    - cron: '30 6 * * 1-5'
+    # Run at 9:30 AM UTC (3:00 PM IST) - Before Market Close
+    - cron: '30 9 * * 1-5'
+  
+  # Allow manual trigger from GitHub Actions tab
+  workflow_dispatch:
+  
+  # Run on push to main branch (for testing)
+  push:
+    branches:
+      - main
+    paths:
+      - 'nifty_analyzer_with_yaml.py'
+      - 'config.yml'
+      - '.github/workflows/nifty_analyzer.yml'
+
+# Environment variables (accessible in all jobs)
+env:
+  PYTHON_VERSION: '3.10'
+
+jobs:
+  analyze:
+    name: Run Nifty Analysis
+    runs-on: ubuntu-latest
+    
+    steps:
+      # Step 1: Checkout repository
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      # Step 2: Set up Python
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+      
+      # Step 3: Install dependencies
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      # Step 4: Create config from secrets
+      - name: Configure analyzer settings
+        run: |
+          # Create config.yml from secrets
+          cat > config.yml << EOF
+          email:
+            recipient: "${{ secrets.RECIPIENT_EMAIL }}"
+            sender: "${{ secrets.SENDER_EMAIL }}"
+            app_password: "${{ secrets.EMAIL_APP_PASSWORD }}"
+            subject_prefix: "Nifty Trading Alert"
+            send_on_failure: false
+          
+          technical:
+            timeframe: "${{ vars.TIMEFRAME || '1h' }}"
+            period: "${{ vars.PERIOD || '6mo' }}"
+            rsi_period: ${{ vars.RSI_PERIOD || 14 }}
+            rsi_overbought: ${{ vars.RSI_OVERBOUGHT || 70 }}
+            rsi_oversold: ${{ vars.RSI_OVERSOLD || 30 }}
+            ema_short: ${{ vars.EMA_SHORT || 20 }}
+            ema_long: ${{ vars.EMA_LONG || 50 }}
+            num_support_levels: 2
+            num_resistance_levels: 2
+          
+          option_chain:
+            pcr_bullish: 1.0
+            pcr_very_bullish: 1.2
+            pcr_bearish: 1.0
+            pcr_very_bearish: 0.8
+            strike_range: 500
+            min_oi: 100000
+          
+          recommendation:
+            strong_buy_threshold: 3
+            buy_threshold: 1
+            sell_threshold: -1
+            strong_sell_threshold: -3
+          
+          report:
+            title: "NIFTY DAY TRADING ANALYSIS"
+            save_local: true
+            local_dir: "./reports"
+            filename_format: "nifty_analysis_%Y%m%d_%H%M%S.html"
+            colors:
+              strong_buy: "#28a745"
+              buy: "#5cb85c"
+              neutral: "#ffc107"
+              sell: "#f0ad4e"
+              strong_sell: "#dc3545"
+          
+          data_source:
+            option_chain_source: "nse"
+            technical_source: "yahoo"
+            max_retries: 3
+            retry_delay: 2
+            timeout: 10
+            fallback_to_sample: true
+          
+          logging:
+            level: "INFO"
+            log_to_file: true
+            log_file: "./logs/nifty_analyzer.log"
+            format: "%(asctime)s - %(levelname)s - %(message)s"
+          
+          advanced:
+            verbose: true
+            debug: false
+            validate_data: true
+            min_data_points: 100
+          EOF
+      
+      # Step 5: Create necessary directories
+      - name: Create directories
+        run: |
+          mkdir -p reports
+          mkdir -p logs
+      
+      # Step 6: Run the analyzer
+      - name: Run Nifty Analysis
+        run: |
+          python niftyoption1hr.py
+        continue-on-error: true
+      
+      # Step 7: Upload reports as artifacts
+      - name: Upload HTML Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nifty-report-${{ github.run_number }}
+          path: reports/*.html
+          retention-days: 30
+      
+      # Step 8: Upload logs
+      - name: Upload Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: analyzer-logs-${{ github.run_number }}
+          path: logs/*.log
+          retention-days: 7
+      
+      # Step 9: Send notification on failure (optional)
+      - name: Notify on Failure
+        if: failure()
+        run: |
+          echo "Analysis failed. Check the logs for details."
+          # You can add Slack/Telegram notification here
