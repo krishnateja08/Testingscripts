@@ -376,33 +376,39 @@ class NiftyAnalyzer:
     
     def calculate_pivot_points(self, df, current_price):
         """
-        Calculate Traditional Pivot Points (Daily)
-        Matches TradingView's Pivot Points Standard indicator
+        Calculate Traditional Pivot Points (30-minute timeframe)
+        Uses previous 30-min candle's OHLC for pivot calculation
         """
         try:
             ticker = yf.Ticker(self.nifty_symbol)
-            daily_df = ticker.history(period='5d', interval='1d')
+            # Fetch 30-minute data
+            min_30_df = ticker.history(period='5d', interval='30m')
             
-            if len(daily_df) >= 2:
-                prev_high = daily_df['High'].iloc[-2]
-                prev_low = daily_df['Low'].iloc[-2]
-                prev_close = daily_df['Close'].iloc[-2]
+            if len(min_30_df) >= 2:
+                # Use previous 30-min candle's OHLC
+                prev_high = min_30_df['High'].iloc[-2]
+                prev_low = min_30_df['Low'].iloc[-2]
+                prev_close = min_30_df['Close'].iloc[-2]
             else:
+                # Fallback to current data if 30-min not available
                 prev_high = df['High'].max()
                 prev_low = df['Low'].min()
                 prev_close = df['Close'].iloc[-1]
             
+            # Traditional Pivot Point calculation
             pivot = (prev_high + prev_low + prev_close) / 3
             
+            # Resistance levels
             r1 = (2 * pivot) - prev_low
             r2 = pivot + (prev_high - prev_low)
             r3 = prev_high + 2 * (pivot - prev_low)
             
+            # Support levels
             s1 = (2 * pivot) - prev_high
             s2 = pivot - (prev_high - prev_low)
             s3 = prev_low - 2 * (prev_high - pivot)
             
-            self.logger.info(f"📍 Pivot Points calculated | PP: ₹{pivot:.2f}")
+            self.logger.info(f"📍 Pivot Points (30m) calculated | PP: ₹{pivot:.2f}")
             
             return {
                 'pivot': round(pivot, 2),
@@ -419,6 +425,7 @@ class NiftyAnalyzer:
             
         except Exception as e:
             self.logger.error(f"Error calculating pivot points: {e}")
+            # Return sample pivot points
             return {
                 'pivot': 24520.00,
                 'r1': 24590.00,
@@ -1050,9 +1057,9 @@ class NiftyAnalyzer:
         </div>
         
         <div class="section">
-            <div class="section-title">📍 Pivot Points (Traditional - Daily)</div>
+            <div class="section-title">📍 Pivot Points (Traditional - 30 Min)</div>
             <p class="pivot-info">
-                Previous Day: High ₹{pivot_points.get('prev_high', 'N/A')} | Low ₹{pivot_points.get('prev_low', 'N/A')} | Close ₹{pivot_points.get('prev_close', 'N/A')}
+                Previous 30-min Candle: High ₹{pivot_points.get('prev_high', 'N/A')} | Low ₹{pivot_points.get('prev_low', 'N/A')} | Close ₹{pivot_points.get('prev_close', 'N/A')}
             </p>
             <div class="pivot-container">
                 <table class="pivot-table">
