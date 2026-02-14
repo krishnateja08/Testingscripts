@@ -987,6 +987,179 @@ class NiftyAnalyzer:
         
         return strategies
     
+    def get_detailed_strike_recommendations(self, oc_analysis, tech_analysis, recommendation):
+        """Generate detailed strike price recommendations with LTP and profit calculations"""
+        current_price = tech_analysis.get('current_price', 0)
+        bias = recommendation['bias']
+        
+        # Round to nearest 50
+        atm_strike = round(current_price / 50) * 50
+        
+        # Get option chain data for specific strikes
+        top_ce_strikes = oc_analysis.get('top_ce_strikes', [])
+        top_pe_strikes = oc_analysis.get('top_pe_strikes', [])
+        
+        # Find ATM, ITM, OTM strikes with their LTPs
+        strike_recommendations = []
+        
+        if bias == 'Bullish':
+            # For bullish: Recommend Call options
+            # ATM Call
+            atm_ce = next((s for s in top_ce_strikes if s['strike'] == atm_strike), None)
+            if atm_ce:
+                strike_recommendations.append({
+                    'strategy': 'Long Call (ATM)',
+                    'action': 'BUY',
+                    'strike': atm_strike,
+                    'type': 'CE',
+                    'ltp': atm_ce['ltp'],
+                    'option_type': 'ATM',
+                    'target_1': atm_strike + 100,  # 100 points profit
+                    'target_2': atm_strike + 200,  # 200 points profit
+                    'stop_loss': atm_ce['ltp'] * 0.3,  # 30% of premium
+                    'max_loss': atm_ce['ltp'],
+                    'profit_at_target_1': 100 - atm_ce['ltp'],
+                    'profit_at_target_2': 200 - atm_ce['ltp'],
+                    'oi': atm_ce['oi'],
+                    'volume': atm_ce['volume']
+                })
+            
+            # OTM Call (50 points above ATM)
+            otm_strike = atm_strike + 50
+            otm_ce = next((s for s in top_ce_strikes if s['strike'] == otm_strike), None)
+            if otm_ce:
+                strike_recommendations.append({
+                    'strategy': 'Long Call (OTM)',
+                    'action': 'BUY',
+                    'strike': otm_strike,
+                    'type': 'CE',
+                    'ltp': otm_ce['ltp'],
+                    'option_type': 'OTM',
+                    'target_1': otm_strike + 100,
+                    'target_2': otm_strike + 150,
+                    'stop_loss': otm_ce['ltp'] * 0.3,
+                    'max_loss': otm_ce['ltp'],
+                    'profit_at_target_1': 100 - otm_ce['ltp'],
+                    'profit_at_target_2': 150 - otm_ce['ltp'],
+                    'oi': otm_ce['oi'],
+                    'volume': otm_ce['volume']
+                })
+            
+            # Bull Call Spread
+            itm_strike = atm_strike - 50
+            itm_ce = next((s for s in top_ce_strikes if s['strike'] == itm_strike), None)
+            if itm_ce and otm_ce:
+                net_premium = itm_ce['ltp'] - otm_ce['ltp']
+                max_profit = (otm_strike - itm_strike) - net_premium
+                strike_recommendations.append({
+                    'strategy': 'Bull Call Spread',
+                    'action': f"BUY {itm_strike} CE + SELL {otm_strike} CE",
+                    'strike': f"{itm_strike}/{otm_strike}",
+                    'type': 'Spread',
+                    'ltp': net_premium,
+                    'option_type': 'ITM/OTM',
+                    'target_1': itm_strike + 25,
+                    'target_2': otm_strike,
+                    'stop_loss': net_premium * 0.4,
+                    'max_loss': net_premium,
+                    'profit_at_target_1': 25 - net_premium,
+                    'profit_at_target_2': max_profit,
+                    'oi': f"{itm_ce['oi']:,} / {otm_ce['oi']:,}",
+                    'volume': f"{itm_ce['volume']:,} / {otm_ce['volume']:,}"
+                })
+        
+        elif bias == 'Bearish':
+            # For bearish: Recommend Put options
+            # ATM Put
+            atm_pe = next((s for s in top_pe_strikes if s['strike'] == atm_strike), None)
+            if atm_pe:
+                strike_recommendations.append({
+                    'strategy': 'Long Put (ATM)',
+                    'action': 'BUY',
+                    'strike': atm_strike,
+                    'type': 'PE',
+                    'ltp': atm_pe['ltp'],
+                    'option_type': 'ATM',
+                    'target_1': atm_strike - 100,
+                    'target_2': atm_strike - 200,
+                    'stop_loss': atm_pe['ltp'] * 0.3,
+                    'max_loss': atm_pe['ltp'],
+                    'profit_at_target_1': 100 - atm_pe['ltp'],
+                    'profit_at_target_2': 200 - atm_pe['ltp'],
+                    'oi': atm_pe['oi'],
+                    'volume': atm_pe['volume']
+                })
+            
+            # OTM Put (50 points below ATM)
+            otm_strike = atm_strike - 50
+            otm_pe = next((s for s in top_pe_strikes if s['strike'] == otm_strike), None)
+            if otm_pe:
+                strike_recommendations.append({
+                    'strategy': 'Long Put (OTM)',
+                    'action': 'BUY',
+                    'strike': otm_strike,
+                    'type': 'PE',
+                    'ltp': otm_pe['ltp'],
+                    'option_type': 'OTM',
+                    'target_1': otm_strike - 100,
+                    'target_2': otm_strike - 150,
+                    'stop_loss': otm_pe['ltp'] * 0.3,
+                    'max_loss': otm_pe['ltp'],
+                    'profit_at_target_1': 100 - otm_pe['ltp'],
+                    'profit_at_target_2': 150 - otm_pe['ltp'],
+                    'oi': otm_pe['oi'],
+                    'volume': otm_pe['volume']
+                })
+            
+            # Bear Put Spread
+            itm_strike = atm_strike + 50
+            itm_pe = next((s for s in top_pe_strikes if s['strike'] == itm_strike), None)
+            if itm_pe and otm_pe:
+                net_premium = itm_pe['ltp'] - otm_pe['ltp']
+                max_profit = (itm_strike - otm_strike) - net_premium
+                strike_recommendations.append({
+                    'strategy': 'Bear Put Spread',
+                    'action': f"BUY {itm_strike} PE + SELL {otm_strike} PE",
+                    'strike': f"{itm_strike}/{otm_strike}",
+                    'type': 'Spread',
+                    'ltp': net_premium,
+                    'option_type': 'ITM/OTM',
+                    'target_1': itm_strike - 25,
+                    'target_2': otm_strike,
+                    'stop_loss': net_premium * 0.4,
+                    'max_loss': net_premium,
+                    'profit_at_target_1': 25 - net_premium,
+                    'profit_at_target_2': max_profit,
+                    'oi': f"{itm_pe['oi']:,} / {otm_pe['oi']:,}",
+                    'volume': f"{itm_pe['volume']:,} / {otm_pe['volume']:,}"
+                })
+        
+        else:  # Neutral
+            # Iron Condor or Straddle
+            atm_ce = next((s for s in top_ce_strikes if s['strike'] == atm_strike), None)
+            atm_pe = next((s for s in top_pe_strikes if s['strike'] == atm_strike), None)
+            
+            if atm_ce and atm_pe:
+                total_premium = atm_ce['ltp'] + atm_pe['ltp']
+                strike_recommendations.append({
+                    'strategy': 'Long Straddle (ATM)',
+                    'action': f"BUY {atm_strike} CE + BUY {atm_strike} PE",
+                    'strike': atm_strike,
+                    'type': 'Straddle',
+                    'ltp': total_premium,
+                    'option_type': 'ATM/ATM',
+                    'target_1': atm_strike + total_premium,
+                    'target_2': atm_strike - total_premium,
+                    'stop_loss': total_premium * 0.5,
+                    'max_loss': total_premium,
+                    'profit_at_target_1': f"Profit if moves ±{total_premium:.0f} points",
+                    'profit_at_target_2': 'Unlimited both sides',
+                    'oi': f"{atm_ce['oi']:,} / {atm_pe['oi']:,}",
+                    'volume': f"{atm_ce['volume']:,} / {atm_pe['volume']:,}"
+                })
+        
+        return strike_recommendations
+    
     def find_nearest_levels(self, current_price, pivot_points):
         """Find nearest support and resistance from pivot points"""
         all_resistances = [pivot_points['r1'], pivot_points['r2'], pivot_points['r3']]
@@ -1024,6 +1197,9 @@ class NiftyAnalyzer:
         title = self.config['report'].get('title', 'NIFTY DAY TRADING ANALYSIS (1H)')
         
         strategies = self.get_options_strategies(recommendation, oc_analysis, tech_analysis)
+        
+        # Get detailed strike recommendations with profit calculations
+        strike_recommendations = self.get_detailed_strike_recommendations(oc_analysis, tech_analysis, recommendation)
         
         pivot_points = tech_analysis.get('pivot_points', {})
         current_price = tech_analysis.get('current_price', 0)
@@ -1227,6 +1403,40 @@ class NiftyAnalyzer:
         .badge-atm {{ background-color: #ffc107; color: #000; padding: 2px 6px; border-radius: 3px; font-size: 9px; font-weight: bold; }}
         .badge-otm {{ background-color: #6c757d; color: white; padding: 2px 6px; border-radius: 3px; font-size: 9px; font-weight: bold; }}
         
+        /* STRIKE RECOMMENDATIONS STYLES */
+        .strike-recommendations {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 15px; margin-top: 15px; }}
+        .strike-card {{ background-color: #ffffff; border: 2px solid #e9ecef; border-radius: 10px; padding: 15px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); transition: transform 0.2s; }}
+        .strike-card:hover {{ transform: translateY(-3px); box-shadow: 0 4px 8px rgba(0,0,0,0.15); }}
+        .strike-header {{ display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #007bff; padding-bottom: 8px; margin-bottom: 12px; }}
+        .strike-header h4 {{ margin: 0; color: #007bff; font-size: 16px; font-weight: 700; }}
+        .strike-badge {{ display: inline-block; padding: 4px 10px; border-radius: 15px; font-size: 11px; font-weight: 600; }}
+        .strike-badge.atm {{ background-color: #ffc107; color: #000; }}
+        .strike-badge.itm {{ background-color: #28a745; color: white; }}
+        .strike-badge.otm {{ background-color: #6c757d; color: white; }}
+        .strike-badge.itm-otm {{ background: linear-gradient(90deg, #28a745 50%, #6c757d 50%); color: white; }}
+        .strike-badge.atm-atm {{ background-color: #ff6b6b; color: white; }}
+        .strike-badge.spread {{ background: linear-gradient(135deg, #007bff, #6610f2); color: white; }}
+        .strike-badge.straddle {{ background: linear-gradient(135deg, #fd7e14, #e83e8c); color: white; }}
+        .strike-details {{ background-color: #f8f9fa; padding: 10px; border-radius: 6px; margin-bottom: 12px; }}
+        .strike-row {{ display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px dashed #dee2e6; }}
+        .strike-row:last-child {{ border-bottom: none; }}
+        .strike-row .label {{ color: #6c757d; font-size: 12px; font-weight: 500; }}
+        .strike-row .value {{ color: #212529; font-size: 13px; font-weight: 600; }}
+        .strike-row .premium {{ color: #007bff; font-size: 14px; font-weight: 700; }}
+        .profit-targets {{ background: linear-gradient(135deg, #e7f3ff 0%, #f8f9fa 100%); padding: 12px; border-radius: 6px; margin-bottom: 10px; }}
+        .profit-targets h5 {{ margin: 0 0 10px 0; color: #007bff; font-size: 13px; font-weight: 700; }}
+        .target-grid {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }}
+        .target-box {{ background-color: white; padding: 8px; border-radius: 6px; text-align: center; border: 2px solid #e9ecef; }}
+        .target-box.target-1 {{ border-color: #28a745; }}
+        .target-box.target-2 {{ border-color: #17a2b8; }}
+        .target-box.stop-loss-box {{ border-color: #dc3545; }}
+        .target-label {{ font-size: 10px; color: #6c757d; text-transform: uppercase; font-weight: 600; margin-bottom: 4px; }}
+        .target-price {{ font-size: 14px; color: #212529; font-weight: 700; margin-bottom: 4px; }}
+        .target-profit {{ font-size: 11px; color: #28a745; font-weight: 600; }}
+        .target-box.stop-loss-box .target-profit {{ color: #dc3545; }}
+        .trade-example {{ background-color: #fff3cd; border: 1px solid #ffc107; border-radius: 5px; padding: 10px; font-size: 11px; line-height: 1.5; color: #856404; }}
+        .no-recommendations {{ background-color: #f8d7da; border: 1px solid #f5c6cb; border-radius: 5px; padding: 20px; text-align: center; color: #721c24; }}
+        
         .strategies-grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; margin-top: 12px; }}
         .strategy-card {{ background-color: #ffffff; border: 2px solid #e9ecef; border-radius: 8px; padding: 10px; }}
         .strategy-header {{ border-bottom: 2px solid #007bff; padding-bottom: 6px; margin-bottom: 6px; }}
@@ -1249,6 +1459,8 @@ class NiftyAnalyzer:
             .levels {{ flex-direction: column; }}
             .levels-box {{ min-width: 100%; }}
             .oi-grid {{ grid-template-columns: 1fr; }}
+            .strike-recommendations {{ grid-template-columns: 1fr; }}
+            .target-grid {{ grid-template-columns: 1fr; }}
         }}
         
         @media (max-width: 480px) {{
@@ -1453,6 +1665,99 @@ class NiftyAnalyzer:
             <div class="reasons">
                 <strong>Key Factors:</strong>
                 <ul>{''.join([f'<li>{reason}</li>' for reason in recommendation.get('reasons', [])])}</ul>
+            </div>
+        </div>
+        
+        <!-- DETAILED STRIKE RECOMMENDATIONS WITH PROFIT CALCULATIONS -->
+        <div class="section">
+            <div class="section-title">💰 Detailed Strike Recommendations with Profit Targets</div>
+            <p style="color: #6c757d; margin-bottom: 15px; font-size: 13px;">
+                <strong>Based on {recommendation['bias']} bias with current Nifty at ₹{tech_analysis.get('current_price', 0):.2f}</strong><br>
+                These are actionable trades with specific strike prices, LTP, and profit calculations.
+            </p>
+            
+            <div class="strike-recommendations">
+"""
+        
+        # Build strike recommendations table
+        if strike_recommendations:
+            for rec in strike_recommendations:
+                # Determine color based on profit potential
+                if isinstance(rec.get('profit_at_target_2'), (int, float)):
+                    if rec['profit_at_target_2'] > 100:
+                        profit_color = '#28a745'  # Green for good profit
+                    elif rec['profit_at_target_2'] > 50:
+                        profit_color = '#ffc107'  # Yellow for moderate
+                    else:
+                        profit_color = '#dc3545'  # Red for low profit
+                else:
+                    profit_color = '#007bff'  # Blue for special cases
+                
+                html += f"""
+                <div class="strike-card" style="border-left: 4px solid {profit_color};">
+                    <div class="strike-header">
+                        <h4>{rec['strategy']}</h4>
+                        <span class="strike-badge {rec['option_type'].lower().replace('/', '-')}">{rec['option_type']}</span>
+                    </div>
+                    
+                    <div class="strike-details">
+                        <div class="strike-row">
+                            <span class="label">Action:</span>
+                            <span class="value"><strong>{rec['action']}</strong></span>
+                        </div>
+                        <div class="strike-row">
+                            <span class="label">Strike Price:</span>
+                            <span class="value"><strong>₹{rec['strike']}</strong></span>
+                        </div>
+                        <div class="strike-row">
+                            <span class="label">Current LTP:</span>
+                            <span class="value premium">₹{rec['ltp']:.2f}</span>
+                        </div>
+                        <div class="strike-row">
+                            <span class="label">Open Interest:</span>
+                            <span class="value">{rec['oi']}</span>
+                        </div>
+                        <div class="strike-row">
+                            <span class="label">Volume:</span>
+                            <span class="value">{rec['volume']}</span>
+                        </div>
+                    </div>
+                    
+                    <div class="profit-targets">
+                        <h5>📊 Profit Targets & Risk</h5>
+                        <div class="target-grid">
+                            <div class="target-box target-1">
+                                <div class="target-label">Target 1</div>
+                                <div class="target-price">₹{rec['target_1']}</div>
+                                <div class="target-profit">Profit: ₹{rec['profit_at_target_1']:.2f}</div>
+                            </div>
+                            <div class="target-box target-2">
+                                <div class="target-label">Target 2</div>
+                                <div class="target-price">₹{rec['target_2']}</div>
+                                <div class="target-profit">{f"Profit: ₹{rec['profit_at_target_2']:.2f}" if isinstance(rec['profit_at_target_2'], (int, float)) else rec['profit_at_target_2']}</div>
+                            </div>
+                            <div class="target-box stop-loss-box">
+                                <div class="target-label">Stop Loss</div>
+                                <div class="target-price">₹{rec['stop_loss']:.2f}</div>
+                                <div class="target-profit">Max Loss: ₹{rec['max_loss']:.2f}</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="trade-example">
+                        <strong>Example:</strong> If you buy 1 lot (50 qty) at LTP ₹{rec['ltp']:.2f}, your investment = ₹{rec['ltp'] * 50:.0f}<br>
+                        At Target 1: Profit = ₹{rec['profit_at_target_1'] * 50 if isinstance(rec['profit_at_target_1'], (int, float)) else 'Variable':.0f} | At Target 2: Profit = ₹{rec['profit_at_target_2'] * 50 if isinstance(rec['profit_at_target_2'], (int, float)) else 'Variable':.0f}
+                    </div>
+                </div>
+                """
+        else:
+            html += """
+                <div class="no-recommendations">
+                    <p>No specific strike recommendations available at this time. Check the general strategies below.</p>
+                </div>
+            """
+        
+        html += """
             </div>
         </div>
         
