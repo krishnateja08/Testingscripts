@@ -2,7 +2,7 @@
 Nifty Option Chain & Technical Analysis for Day Trading
 COMPLETE VERSION - Both 1H and 5H Momentum Side-by-Side
 1-HOUR TIMEFRAME with WILDER'S RSI (matches TradingView)
-Enhanced with Pivot Points + Dual Momentum Analysis
+Enhanced with Pivot Points + Dual Momentum Analysis + OI CHANGE ANALYSIS
 """
 
 import pandas as pd
@@ -18,6 +18,7 @@ import warnings
 import yaml
 import os
 import logging
+import pickle
 
 warnings.filterwarnings('ignore')
 
@@ -37,6 +38,10 @@ class NiftyAnalyzer:
             'Accept-Language': 'en-US,en;q=0.9',
             'Accept-Encoding': 'gzip, deflate, br'
         }
+        
+        # OI storage file
+        self.oi_storage_file = './data/previous_oi.pkl'
+        os.makedirs('./data', exist_ok=True)
         
     def get_ist_time(self):
         """Get current time in IST"""
@@ -158,6 +163,150 @@ class NiftyAnalyzer:
             file_handler.setFormatter(formatter)
             self.logger.addHandler(file_handler)
     
+    def save_previous_oi(self, oc_df):
+        """Save today's OI data for next day comparison"""
+        try:
+            oi_data = {
+                'date': self.get_ist_time().strftime('%Y-%m-%d'),
+                'timestamp': self.get_ist_time(),
+                'data': oc_df[['Strike', 'Call_OI', 'Put_OI']].copy()
+            }
+            with open(self.oi_storage_file, 'wb') as f:
+                pickle.dump(oi_data, f)
+            self.logger.info("💾 Today's OI data saved for future comparison")
+        except Exception as e:
+            self.logger.warning(f"⚠️ Could not save OI data: {e}")
+    
+    def load_previous_oi(self):
+        """Load previous day's OI data"""
+        try:
+            if os.path.exists(self.oi_storage_file):
+                with open(self.oi_storage_file, 'rb') as f:
+                    prev_data = pickle.load(f)
+                
+                # Check if data is from a different day
+                prev_date = prev_data['date']
+                current_date = self.get_ist_time().strftime('%Y-%m-%d')
+                
+                if prev_date != current_date:
+                    self.logger.info(f"📂 Loaded OI data from previous day: {prev_date}")
+                    return prev_data['data']
+                else:
+                    self.logger.info("ℹ️ No previous day data (same day)")
+                    return None
+            else:
+                self.logger.info("ℹ️ No previous OI data file found")
+                return None
+        except Exception as e:
+            self.logger.warning(f"⚠️ Could not load previous OI data: {e}")
+            return None
+    
+    def analyze_oi_change(self, current_oc_df, previous_oc_df):
+        """Analyze OI changes compared to previous day"""
+        if previous_oc_df is None:
+            self.logger.warning("⚠️ No previous OI data for comparison")
+            return {
+                'total_call_oi_change': 0,
+                'total_put_oi_change': 0,
+                'call_oi_pct_change': 0,
+                'put_oi_pct_change': 0,
+                'net_oi_change': 0,
+                'oi_sentiment': 'No Data',
+                'market_direction': 'Insufficient Data',
+                'confidence_level': 'Low',
+                'has_data': False
+            }
+        
+        try:
+            # Merge current and previous data
+            merged = current_oc_df.merge(
+                previous_oc_df, 
+                on='Strike', 
+                how='inner',
+                suffixes=('_current', '_prev')
+            )
+            
+            # Calculate total OI changes
+            total_call_oi_current = current_oc_df['Call_OI'].sum()
+            total_put_oi_current = current_oc_df['Put_OI'].sum()
+            
+            total_call_oi_prev = merged['Call_OI_prev'].sum()
+            total_put_oi_prev = merged['Put_OI_prev'].sum()
+            
+            call_oi_change = total_call_oi_current - total_call_oi_prev
+            put_oi_change = total_put_oi_current - total_put_oi_prev
+            
+            # Calculate percentage changes
+            call_oi_pct = (call_oi_change / total_call_oi_prev * 100) if total_call_oi_prev > 0 else 0
+            put_oi_pct = (put_oi_change / total_put_oi_prev * 100) if total_put_oi_prev > 0 else 0
+            
+            # Net OI change (Put - Call)
+            net_oi_change = put_oi_change - call_oi_change
+            
+            # Determine sentiment and market direction
+            if put_oi_change > call_oi_change:
+                if put_oi_change > call_oi_change * 1.5:
+                    oi_sentiment = 'Strong Bullish'
+                    market_direction = 'UP (Strong Put Addition - Bullish Support)'
+                    confidence_level = 'High'
+                else:
+                    oi_sentiment = 'Bullish'
+                    market_direction = 'UP (Put Addition > Call Addition)'
+                    confidence_level = 'Medium'
+            elif call_oi_change > put_oi_change:
+                if call_oi_change > put_oi_change * 1.5:
+                    oi_sentiment = 'Strong Bearish'
+                    market_direction = 'DOWN (Strong Call Addition - Bearish Resistance)'
+                    confidence_level = 'High'
+                else:
+                    oi_sentiment = 'Bearish'
+                    market_direction = 'DOWN (Call Addition > Put Addition)'
+                    confidence_level = 'Medium'
+            else:
+                oi_sentiment = 'Neutral'
+                market_direction = 'SIDEWAYS (Balanced OI Addition)'
+                confidence_level = 'Low'
+            
+            self.logger.info("=" * 60)
+            self.logger.info("📊 OI CHANGE ANALYSIS (vs Previous Day)")
+            self.logger.info(f"📞 Call OI Change: {call_oi_change:+,.0f} ({call_oi_pct:+.2f}%)")
+            self.logger.info(f"📉 Put OI Change: {put_oi_change:+,.0f} ({put_oi_pct:+.2f}%)")
+            self.logger.info(f"🎯 Net OI Change: {net_oi_change:+,.0f}")
+            self.logger.info(f"💡 OI Sentiment: {oi_sentiment}")
+            self.logger.info(f"📈 Market Direction: {market_direction}")
+            self.logger.info(f"🎯 Confidence: {confidence_level}")
+            self.logger.info("=" * 60)
+            
+            return {
+                'total_call_oi_change': call_oi_change,
+                'total_put_oi_change': put_oi_change,
+                'call_oi_pct_change': call_oi_pct,
+                'put_oi_pct_change': put_oi_pct,
+                'net_oi_change': net_oi_change,
+                'oi_sentiment': oi_sentiment,
+                'market_direction': market_direction,
+                'confidence_level': confidence_level,
+                'total_call_oi_current': total_call_oi_current,
+                'total_put_oi_current': total_put_oi_current,
+                'total_call_oi_prev': total_call_oi_prev,
+                'total_put_oi_prev': total_put_oi_prev,
+                'has_data': True
+            }
+            
+        except Exception as e:
+            self.logger.error(f"❌ Error analyzing OI change: {e}")
+            return {
+                'total_call_oi_change': 0,
+                'total_put_oi_change': 0,
+                'call_oi_pct_change': 0,
+                'put_oi_pct_change': 0,
+                'net_oi_change': 0,
+                'oi_sentiment': 'Error',
+                'market_direction': 'Unable to determine',
+                'confidence_level': 'Low',
+                'has_data': False
+            }
+    
     def fetch_option_chain(self):
         """Fetch Nifty option chain data from NSE"""
         if self.config['data_source']['option_chain_source'] == 'sample':
@@ -218,6 +367,10 @@ class NiftyAnalyzer:
                     oc_df = oc_df.sort_values('Strike')
                     
                     self.logger.info(f"✅ Option chain data fetched successfully | Spot: ₹{current_price}")
+                    
+                    # Save today's OI for next day comparison
+                    self.save_previous_oi(oc_df)
+                    
                     return oc_df, current_price
                 
             except Exception as e:
@@ -685,8 +838,8 @@ class NiftyAnalyzer:
             }
         }
     
-    def generate_recommendation(self, oc_analysis, tech_analysis):
-        """Generate trading recommendation WITH DUAL MOMENTUM FILTER"""
+    def generate_recommendation(self, oc_analysis, tech_analysis, oi_change_analysis):
+        """Generate trading recommendation WITH DUAL MOMENTUM FILTER + OI CHANGE"""
         if not oc_analysis or not tech_analysis:
             return {"recommendation": "Insufficient data", "bias": "Neutral", "confidence": "Low", "reasons": []}
         
@@ -697,6 +850,29 @@ class NiftyAnalyzer:
         bullish_signals = 0
         bearish_signals = 0
         reasons = []
+        
+        # ==================== OI CHANGE SIGNALS ====================
+        if oi_change_analysis.get('has_data', False):
+            oi_sentiment = oi_change_analysis.get('oi_sentiment', 'Neutral')
+            market_direction = oi_change_analysis.get('market_direction', 'Unknown')
+            confidence = oi_change_analysis.get('confidence_level', 'Low')
+            
+            put_change = oi_change_analysis.get('total_put_oi_change', 0)
+            call_change = oi_change_analysis.get('total_call_oi_change', 0)
+            
+            if 'Strong Bullish' in oi_sentiment:
+                bullish_signals += 2
+                reasons.append(f"🔥 Strong Put OI Addition: {put_change:+,.0f} (Strong Bullish)")
+            elif 'Bullish' in oi_sentiment:
+                bullish_signals += 1
+                reasons.append(f"📈 Put OI Addition > Call OI Addition ({market_direction})")
+            elif 'Strong Bearish' in oi_sentiment:
+                bearish_signals += 2
+                reasons.append(f"🔥 Strong Call OI Addition: {call_change:+,.0f} (Strong Bearish)")
+            elif 'Bearish' in oi_sentiment:
+                bearish_signals += 1
+                reasons.append(f"📉 Call OI Addition > Put OI Addition ({market_direction})")
+        # ===========================================================
         
         # ==================== DUAL MOMENTUM SIGNALS ====================
         use_momentum = self.config['advanced'].get('use_momentum_filter', True)
@@ -925,8 +1101,8 @@ class NiftyAnalyzer:
             'nearest_support': nearest_support
         }
     
-    def create_html_report(self, oc_analysis, tech_analysis, recommendation):
-        """Create beautiful HTML report with DUAL MOMENTUM SIDE-BY-SIDE"""
+    def create_html_report(self, oc_analysis, tech_analysis, recommendation, oi_change_analysis):
+        """Create beautiful HTML report with DUAL MOMENTUM + OI CHANGE ANALYSIS"""
         now_ist = self.format_ist_time()
         
         colors = self.config['report'].get('colors', {})
@@ -963,6 +1139,66 @@ class NiftyAnalyzer:
         momentum_5h_colors = tech_analysis.get('momentum_5h_colors', {
             'bg': '#6c757d', 'bg_dark': '#5a6268', 'text': '#ffffff', 'border': '#495057'
         })
+        
+        # OI Change Analysis HTML
+        if oi_change_analysis.get('has_data', False):
+            oi_sentiment = oi_change_analysis.get('oi_sentiment', 'N/A')
+            market_direction = oi_change_analysis.get('market_direction', 'N/A')
+            confidence_level = oi_change_analysis.get('confidence_level', 'Low')
+            
+            call_change = oi_change_analysis.get('total_call_oi_change', 0)
+            put_change = oi_change_analysis.get('total_put_oi_change', 0)
+            call_pct = oi_change_analysis.get('call_oi_pct_change', 0)
+            put_pct = oi_change_analysis.get('put_oi_pct_change', 0)
+            
+            # Determine OI Change color
+            if 'Bullish' in oi_sentiment:
+                oi_color = '#28a745'
+            elif 'Bearish' in oi_sentiment:
+                oi_color = '#dc3545'
+            else:
+                oi_color = '#6c757d'
+            
+            oi_change_html = f"""
+        <div class="section">
+            <div class="section-title">📊 Open Interest Change Analysis (vs Previous Day)</div>
+            <div class="oi-change-box" style="background: linear-gradient(135deg, {oi_color} 0%, {oi_color}dd 100%);">
+                <div class="oi-change-header">
+                    <h3>Market Direction: {market_direction}</h3>
+                    <div class="confidence-badge">Confidence: {confidence_level}</div>
+                </div>
+                <div class="oi-change-grid">
+                    <div class="oi-change-item">
+                        <div class="oi-label">📞 Call OI Change</div>
+                        <div class="oi-value">{call_change:+,.0f}</div>
+                        <div class="oi-pct">({call_pct:+.2f}%)</div>
+                    </div>
+                    <div class="oi-change-item">
+                        <div class="oi-label">📉 Put OI Change</div>
+                        <div class="oi-value">{put_change:+,.0f}</div>
+                        <div class="oi-pct">({put_pct:+.2f}%)</div>
+                    </div>
+                </div>
+                <div class="oi-sentiment">
+                    <strong>OI Sentiment:</strong> {oi_sentiment}
+                </div>
+                <div class="oi-interpretation">
+                    <strong>Interpretation:</strong><br>
+                    {'📈 <strong>Bullish Signal:</strong> Put OI addition suggests traders are buying protection on downside, indicating confidence in upward movement.' if 'Bullish' in oi_sentiment else '📉 <strong>Bearish Signal:</strong> Call OI addition suggests traders are hedging upside, indicating expectation of downward movement.' if 'Bearish' in oi_sentiment else '⚖️ Balanced OI changes indicate neutral market sentiment.'}
+                </div>
+            </div>
+        </div>
+            """
+        else:
+            oi_change_html = f"""
+        <div class="section">
+            <div class="section-title">📊 Open Interest Change Analysis</div>
+            <div class="info-box">
+                <p>⚠️ No previous day OI data available for comparison.</p>
+                <p>Today's OI data will be saved for tomorrow's analysis.</p>
+            </div>
+        </div>
+            """
         
         # Top CE/PE strikes HTML
         top_ce_html = ''
@@ -1087,6 +1323,26 @@ class NiftyAnalyzer:
         .momentum-box .value {{ font-size: 32px; font-weight: 900; margin: 8px 0; color: var(--momentum-text); text-shadow: 1px 1px 2px rgba(0,0,0,0.1); }}
         .momentum-box .signal {{ font-size: 14px; margin-top: 5px; font-weight: 600; color: var(--momentum-text); }}
         
+        /* OI CHANGE STYLING */
+        .oi-change-box {{ 
+            color: white; 
+            padding: 20px; 
+            border-radius: 10px; 
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2); 
+            margin-top: 15px;
+        }}
+        .oi-change-header {{ text-align: center; margin-bottom: 15px; }}
+        .oi-change-header h3 {{ margin: 0 0 8px 0; font-size: 20px; font-weight: bold; }}
+        .confidence-badge {{ display: inline-block; background: rgba(255,255,255,0.3); padding: 4px 12px; border-radius: 15px; font-size: 13px; }}
+        .oi-change-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin: 15px 0; }}
+        .oi-change-item {{ background: rgba(255,255,255,0.15); padding: 15px; border-radius: 8px; text-align: center; }}
+        .oi-label {{ font-size: 13px; margin-bottom: 5px; opacity: 0.9; }}
+        .oi-value {{ font-size: 26px; font-weight: bold; margin: 5px 0; }}
+        .oi-pct {{ font-size: 14px; opacity: 0.9; }}
+        .oi-sentiment {{ text-align: center; margin: 15px 0; font-size: 16px; padding: 10px; background: rgba(255,255,255,0.2); border-radius: 5px; }}
+        .oi-interpretation {{ margin-top: 15px; padding: 12px; background: rgba(255,255,255,0.2); border-radius: 5px; font-size: 13px; line-height: 1.6; }}
+        .info-box {{ background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; border-radius: 5px; color: #856404; margin-top: 15px; }}
+        
         .recommendation-box {{ background: linear-gradient(135deg, {rec_color} 0%, {rec_color}dd 100%); color: white; padding: 15px; border-radius: 10px; text-align: center; margin-bottom: 20px; box-shadow: 0 4px 8px rgba(0,0,0,0.2); }}
         .recommendation-box h2 {{ margin: 0 0 6px 0; font-size: 26px; font-weight: bold; }}
         .recommendation-box .subtitle {{ font-size: 14px; opacity: 0.9; }}
@@ -1148,6 +1404,7 @@ class NiftyAnalyzer:
             .data-item .value {{ font-size: 14px; }}
             .levels {{ flex-direction: column; }}
             .levels-box {{ min-width: 100%; }}
+            .oi-change-grid {{ grid-template-columns: 1fr; }}
         }}
         
         @media (max-width: 480px) {{
@@ -1167,7 +1424,7 @@ class NiftyAnalyzer:
     <div class="container">
         <div class="header">
             <h1>📊 {title}</h1>
-            <div class="timeframe-badge">⏱️ 1-HOUR TIMEFRAME</div>
+            <div class="timeframe-badge">⏱️ 1-HOUR TIMEFRAME + OI CHANGE ANALYSIS</div>
             <div class="timestamp">Generated on: {now_ist}</div>
         </div>
         
@@ -1184,6 +1441,8 @@ class NiftyAnalyzer:
                 <div class="signal">{momentum_5h_signal}</div>
             </div>
         </div>
+        
+        {oi_change_html}
         
         <div class="recommendation-box">
             <h2>{recommendation['recommendation']}</h2>
@@ -1326,7 +1585,7 @@ class NiftyAnalyzer:
         
         <div class="footer">
             <p><strong>Disclaimer:</strong> This analysis is for educational purposes only. Trading involves risk.</p>
-            <p>© 2025 Nifty Trading Analyzer | Dual Momentum Analysis (1H + 5H)</p>
+            <p>© 2025 Nifty Trading Analyzer | Dual Momentum + OI Change Analysis</p>
         </div>
     </div>
 </body>
@@ -1369,17 +1628,24 @@ class NiftyAnalyzer:
             return False
     
     def run_analysis(self):
-        """Run complete analysis with DUAL MOMENTUM DETECTION"""
-        self.logger.info("🚀 Starting Nifty 1-HOUR Analysis with Dual Momentum...")
+        """Run complete analysis with DUAL MOMENTUM + OI CHANGE DETECTION"""
+        self.logger.info("🚀 Starting Nifty 1-HOUR Analysis with Dual Momentum + OI Change...")
         self.logger.info("=" * 60)
         
+        # Load previous day's OI data
+        previous_oi_df = self.load_previous_oi()
+        
+        # Fetch current option chain
         oc_df, spot_price = self.fetch_option_chain()
         
         if oc_df is not None and spot_price is not None:
             oc_analysis = self.analyze_option_chain(oc_df, spot_price)
+            # Analyze OI change
+            oi_change_analysis = self.analyze_oi_change(oc_df, previous_oi_df)
         else:
             spot_price = 25796
             oc_analysis = self.get_sample_oc_analysis()
+            oi_change_analysis = {'has_data': False}
         
         tech_df = self.fetch_technical_data()
         
@@ -1388,8 +1654,8 @@ class NiftyAnalyzer:
         else:
             tech_analysis = self.get_sample_tech_analysis()
         
-        self.logger.info("🎯 Generating Trading Recommendation with Dual Momentum...")
-        recommendation = self.generate_recommendation(oc_analysis, tech_analysis)
+        self.logger.info("🎯 Generating Trading Recommendation with Dual Momentum + OI Change...")
+        recommendation = self.generate_recommendation(oc_analysis, tech_analysis, oi_change_analysis)
         
         self.logger.info("=" * 60)
         self.logger.info(f"📊 RECOMMENDATION: {recommendation['recommendation']}")
@@ -1397,10 +1663,12 @@ class NiftyAnalyzer:
         self.logger.info(f"🎯 RSI (1H): {tech_analysis.get('rsi', 'N/A')}")
         self.logger.info(f"⚡ 1H Momentum: {tech_analysis.get('price_change_pct_1h', 0):+.2f}% - {tech_analysis.get('momentum_1h_signal')}")
         self.logger.info(f"📊 5H Momentum: {tech_analysis.get('momentum_5h_pct', 0):+.2f}% - {tech_analysis.get('momentum_5h_signal')}")
+        if oi_change_analysis.get('has_data'):
+            self.logger.info(f"📊 OI Direction: {oi_change_analysis.get('market_direction')}")
         self.logger.info(f"📍 Pivot Point: ₹{tech_analysis.get('pivot_points', {}).get('pivot', 'N/A')}")
         self.logger.info("=" * 60)
         
-        html_report = self.create_html_report(oc_analysis, tech_analysis, recommendation)
+        html_report = self.create_html_report(oc_analysis, tech_analysis, recommendation, oi_change_analysis)
         
         if self.config['report']['save_local']:
             report_dir = self.config['report']['local_dir']
@@ -1417,12 +1685,13 @@ class NiftyAnalyzer:
         self.logger.info(f"📧 Sending email to {self.config['email']['recipient']}...")
         self.send_email(html_report)
         
-        self.logger.info("✅ Dual Momentum Analysis Complete!")
+        self.logger.info("✅ Dual Momentum + OI Change Analysis Complete!")
         
         return {
             'oc_analysis': oc_analysis,
             'tech_analysis': tech_analysis,
             'recommendation': recommendation,
+            'oi_change_analysis': oi_change_analysis,
             'html_report': html_report
         }
 
@@ -1436,4 +1705,14 @@ if __name__ == "__main__":
     print(f"RSI (1H): {result['tech_analysis']['rsi']}")
     print(f"1H Momentum: {result['tech_analysis']['price_change_pct_1h']:+.2f}% - {result['tech_analysis']['momentum_1h_signal']}")
     print(f"5H Momentum: {result['tech_analysis']['momentum_5h_pct']:+.2f}% - {result['tech_analysis']['momentum_5h_signal']}")
-    print(f"Check your email for the detailed report!")
+    
+    if result['oi_change_analysis'].get('has_data'):
+        print(f"\n📊 OI CHANGE INSIGHTS:")
+        print(f"Call OI Change: {result['oi_change_analysis']['total_call_oi_change']:+,.0f} ({result['oi_change_analysis']['call_oi_pct_change']:+.2f}%)")
+        print(f"Put OI Change: {result['oi_change_analysis']['total_put_oi_change']:+,.0f} ({result['oi_change_analysis']['put_oi_pct_change']:+.2f}%)")
+        print(f"Market Direction: {result['oi_change_analysis']['market_direction']}")
+        print(f"Confidence: {result['oi_change_analysis']['confidence_level']}")
+    else:
+        print(f"\n⚠️ No previous OI data for comparison. Data will be saved for tomorrow's analysis.")
+    
+    print(f"\nCheck your email for the detailed report!")
