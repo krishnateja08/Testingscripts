@@ -1,8 +1,7 @@
 """
 Nifty Option Chain & Technical Analysis for Day Trading
-COMPLETE VERSION - Both 1H and 5H Momentum Side-by-Side
-1-HOUR TIMEFRAME with WILDER'S RSI (matches TradingView)
-Enhanced with Pivot Points + Dual Momentum Analysis
+ENHANCED VERSION with Previous Day OI Change Analysis
+Includes weekend/holiday detection and OI buildup tracking
 """
 
 import pandas as pd
@@ -38,6 +37,25 @@ class NiftyAnalyzer:
             'Accept-Encoding': 'gzip, deflate, br'
         }
         
+        # Indian stock market holidays for 2025 (add more as needed)
+        self.market_holidays = [
+            '2025-01-26',  # Republic Day
+            '2025-03-14',  # Holi
+            '2025-03-31',  # Id-ul-Fitr
+            '2025-04-10',  # Mahavir Jayanti
+            '2025-04-14',  # Dr. Ambedkar Jayanti
+            '2025-04-18',  # Good Friday
+            '2025-05-01',  # Maharashtra Day
+            '2025-06-07',  # Id-ul-Adha
+            '2025-08-15',  # Independence Day
+            '2025-08-27',  # Ganesh Chaturthi
+            '2025-10-02',  # Gandhi Jayanti
+            '2025-10-21',  # Dussehra
+            '2025-10-22',  # Diwali
+            '2025-11-05',  # Gurunanak Jayanti
+            '2025-12-25',  # Christmas
+        ]
+        
     def get_ist_time(self):
         """Get current time in IST"""
         return datetime.now(self.ist)
@@ -51,6 +69,34 @@ class NiftyAnalyzer:
         else:
             dt = dt.astimezone(self.ist)
         return dt.strftime("%Y-%m-%d %H:%M:%S IST")
+    
+    def is_market_holiday(self, date):
+        """Check if a given date is a market holiday"""
+        date_str = date.strftime('%Y-%m-%d')
+        return date_str in self.market_holidays
+    
+    def get_previous_trading_day(self):
+        """Get the previous trading day (excluding weekends and holidays)"""
+        current_date = self.get_ist_time().date()
+        previous_date = current_date - timedelta(days=1)
+        
+        # Keep going back until we find a trading day
+        while True:
+            # Check if it's a weekend (Saturday=5, Sunday=6)
+            if previous_date.weekday() >= 5:
+                previous_date -= timedelta(days=1)
+                continue
+            
+            # Check if it's a market holiday
+            if self.is_market_holiday(previous_date):
+                previous_date -= timedelta(days=1)
+                continue
+            
+            # Found a valid trading day
+            break
+        
+        self.logger.info(f"📅 Previous trading day: {previous_date}")
+        return previous_date
         
     def load_config(self, config_path):
         """Load configuration from YAML file"""
@@ -246,6 +292,7 @@ class NiftyAnalyzer:
             top_ce_strikes.append({
                 'strike': row['Strike'],
                 'oi': int(row['Call_OI']),
+                'chng_oi': int(row['Call_Chng_OI']),
                 'ltp': row['Call_LTP'],
                 'iv': row['Call_IV'],
                 'type': strike_type
@@ -259,12 +306,79 @@ class NiftyAnalyzer:
             top_pe_strikes.append({
                 'strike': row['Strike'],
                 'oi': int(row['Put_OI']),
+                'chng_oi': int(row['Put_Chng_OI']),
                 'ltp': row['Put_LTP'],
                 'iv': row['Put_IV'],
                 'type': strike_type
             })
         
         return {'top_ce_strikes': top_ce_strikes, 'top_pe_strikes': top_pe_strikes}
+    
+    def analyze_oi_changes(self, oc_df):
+        """Analyze OI changes from previous day to determine bullish/bearish sentiment"""
+        if oc_df is None or oc_df.empty:
+            return self.get_sample_oi_changes()
+        
+        # Calculate total OI changes
+        total_call_oi_added = oc_df[oc_df['Call_Chng_OI'] > 0]['Call_Chng_OI'].sum()
+        total_call_oi_reduced = abs(oc_df[oc_df['Call_Chng_OI'] < 0]['Call_Chng_OI'].sum())
+        net_call_change = oc_df['Call_Chng_OI'].sum()
+        
+        total_put_oi_added = oc_df[oc_df['Put_Chng_OI'] > 0]['Put_Chng_OI'].sum()
+        total_put_oi_reduced = abs(oc_df[oc_df['Put_Chng_OI'] < 0]['Put_Chng_OI'].sum())
+        net_put_change = oc_df['Put_Chng_OI'].sum()
+        
+        # Determine sentiment based on OI changes
+        # Put buildup (long puts) = Bearish
+        # Call buildup (long calls) = Bullish
+        # But we need to consider whether it's addition or reduction
+        
+        oi_sentiment = "Neutral"
+        oi_strength = "Weak"
+        
+        if net_put_change > net_call_change:
+            if total_put_oi_added > total_put_oi_reduced * 1.5:
+                oi_sentiment = "Bullish"  # Put writing (short puts)
+                oi_strength = "Strong" if net_put_change > 5000000 else "Moderate"
+            else:
+                oi_sentiment = "Bearish"  # Put buying (long puts)
+                oi_strength = "Moderate"
+        elif net_call_change > net_put_change:
+            if total_call_oi_added > total_call_oi_reduced * 1.5:
+                oi_sentiment = "Bearish"  # Call writing (short calls)
+                oi_strength = "Strong" if net_call_change > 5000000 else "Moderate"
+            else:
+                oi_sentiment = "Bullish"  # Call buying (long calls)
+                oi_strength = "Moderate"
+        
+        self.logger.info(f"📊 OI Changes - Call: {net_call_change:+,.0f} | Put: {net_put_change:+,.0f}")
+        self.logger.info(f"📊 OI Sentiment: {oi_sentiment} ({oi_strength})")
+        
+        return {
+            'total_call_oi_added': int(total_call_oi_added),
+            'total_call_oi_reduced': int(total_call_oi_reduced),
+            'net_call_change': int(net_call_change),
+            'total_put_oi_added': int(total_put_oi_added),
+            'total_put_oi_reduced': int(total_put_oi_reduced),
+            'net_put_change': int(net_put_change),
+            'oi_sentiment': oi_sentiment,
+            'oi_strength': oi_strength,
+            'dominant_activity': 'Put Buildup' if abs(net_put_change) > abs(net_call_change) else 'Call Buildup'
+        }
+    
+    def get_sample_oi_changes(self):
+        """Return sample OI changes"""
+        return {
+            'total_call_oi_added': 8500000,
+            'total_call_oi_reduced': 3200000,
+            'net_call_change': 5300000,
+            'total_put_oi_added': 12000000,
+            'total_put_oi_reduced': 4500000,
+            'net_put_change': 7500000,
+            'oi_sentiment': 'Bullish',
+            'oi_strength': 'Strong',
+            'dominant_activity': 'Put Buildup'
+        }
     
     def analyze_option_chain(self, oc_df, spot_price):
         """Analyze option chain for trading signals"""
@@ -311,6 +425,9 @@ class NiftyAnalyzer:
         
         top_strikes = self.get_top_strikes_by_oi(oc_df, spot_price)
         
+        # Analyze OI changes
+        oi_changes = self.analyze_oi_changes(oc_df)
+        
         return {
             'pcr': round(pcr, 2),
             'max_pain': max_pain_strike,
@@ -322,7 +439,8 @@ class NiftyAnalyzer:
             'avg_put_iv': round(avg_put_iv, 2),
             'oi_sentiment': 'Bullish' if total_put_buildup > total_call_buildup else 'Bearish',
             'top_ce_strikes': top_strikes['top_ce_strikes'],
-            'top_pe_strikes': top_strikes['top_pe_strikes']
+            'top_pe_strikes': top_strikes['top_pe_strikes'],
+            'oi_changes': oi_changes
         }
     
     def get_sample_oc_analysis(self):
@@ -338,19 +456,20 @@ class NiftyAnalyzer:
             'avg_put_iv': 16.2,
             'oi_sentiment': 'Bullish',
             'top_ce_strikes': [
-                {'strike': 24500, 'oi': 5000000, 'ltp': 120, 'iv': 16.5, 'type': 'ATM'},
-                {'strike': 24600, 'oi': 4500000, 'ltp': 80, 'iv': 15.8, 'type': 'OTM'},
-                {'strike': 24550, 'oi': 4200000, 'ltp': 95, 'iv': 16.0, 'type': 'OTM'},
-                {'strike': 24450, 'oi': 3800000, 'ltp': 145, 'iv': 16.8, 'type': 'ITM'},
-                {'strike': 24400, 'oi': 3500000, 'ltp': 170, 'iv': 17.0, 'type': 'ITM'},
+                {'strike': 24500, 'oi': 5000000, 'chng_oi': 500000, 'ltp': 120, 'iv': 16.5, 'type': 'ATM'},
+                {'strike': 24600, 'oi': 4500000, 'chng_oi': 300000, 'ltp': 80, 'iv': 15.8, 'type': 'OTM'},
+                {'strike': 24550, 'oi': 4200000, 'chng_oi': 200000, 'ltp': 95, 'iv': 16.0, 'type': 'OTM'},
+                {'strike': 24450, 'oi': 3800000, 'chng_oi': -100000, 'ltp': 145, 'iv': 16.8, 'type': 'ITM'},
+                {'strike': 24400, 'oi': 3500000, 'chng_oi': 150000, 'ltp': 170, 'iv': 17.0, 'type': 'ITM'},
             ],
             'top_pe_strikes': [
-                {'strike': 24500, 'oi': 5500000, 'ltp': 110, 'iv': 16.0, 'type': 'ATM'},
-                {'strike': 24400, 'oi': 5000000, 'ltp': 75, 'iv': 15.5, 'type': 'OTM'},
-                {'strike': 24450, 'oi': 4700000, 'ltp': 90, 'iv': 15.7, 'type': 'OTM'},
-                {'strike': 24550, 'oi': 4300000, 'ltp': 135, 'iv': 16.5, 'type': 'ITM'},
-                {'strike': 24600, 'oi': 4000000, 'ltp': 160, 'iv': 16.8, 'type': 'ITM'},
-            ]
+                {'strike': 24500, 'oi': 5500000, 'chng_oi': 700000, 'ltp': 110, 'iv': 16.0, 'type': 'ATM'},
+                {'strike': 24400, 'oi': 5000000, 'chng_oi': 600000, 'ltp': 75, 'iv': 15.5, 'type': 'OTM'},
+                {'strike': 24450, 'oi': 4700000, 'chng_oi': 400000, 'ltp': 90, 'iv': 15.7, 'type': 'OTM'},
+                {'strike': 24550, 'oi': 4300000, 'chng_oi': -200000, 'ltp': 135, 'iv': 16.5, 'type': 'ITM'},
+                {'strike': 24600, 'oi': 4000000, 'chng_oi': 100000, 'ltp': 160, 'iv': 16.8, 'type': 'ITM'},
+            ],
+            'oi_changes': self.get_sample_oi_changes()
         }
     
     def fetch_technical_data(self):
@@ -686,7 +805,7 @@ class NiftyAnalyzer:
         }
     
     def generate_recommendation(self, oc_analysis, tech_analysis):
-        """Generate trading recommendation WITH DUAL MOMENTUM FILTER"""
+        """Generate trading recommendation WITH DUAL MOMENTUM FILTER and OI CHANGES"""
         if not oc_analysis or not tech_analysis:
             return {"recommendation": "Insufficient data", "bias": "Neutral", "confidence": "Low", "reasons": []}
         
@@ -735,6 +854,30 @@ class NiftyAnalyzer:
                 reasons.append(f"⚡ 1H Strong downward move: {momentum_1h_pct:+.2f}%")
         # ================================================================
         
+        # ==================== OI CHANGE SIGNALS ====================
+        oi_changes = oc_analysis.get('oi_changes', {})
+        if oi_changes:
+            oi_sentiment = oi_changes.get('oi_sentiment', 'Neutral')
+            oi_strength = oi_changes.get('oi_strength', 'Weak')
+            net_put_change = oi_changes.get('net_put_change', 0)
+            net_call_change = oi_changes.get('net_call_change', 0)
+            
+            if oi_sentiment == 'Bullish':
+                if oi_strength == 'Strong':
+                    bullish_signals += 2
+                    reasons.append(f"💪 Strong bullish OI buildup: Put +{net_put_change:,.0f}")
+                else:
+                    bullish_signals += 1
+                    reasons.append(f"📊 Bullish OI activity detected")
+            elif oi_sentiment == 'Bearish':
+                if oi_strength == 'Strong':
+                    bearish_signals += 2
+                    reasons.append(f"⚠️ Strong bearish OI buildup: Call +{net_call_change:,.0f}")
+                else:
+                    bearish_signals += 1
+                    reasons.append(f"📊 Bearish OI activity detected")
+        # ===========================================================
+        
         # Option chain signals
         pcr = oc_analysis.get('pcr', 0)
         if pcr >= oc_config['pcr_very_bullish']:
@@ -749,13 +892,6 @@ class NiftyAnalyzer:
         elif pcr < oc_config['pcr_bearish']:
             bearish_signals += 1
             reasons.append(f"PCR at {pcr} shows bearish bias")
-        
-        if oc_analysis.get('oi_sentiment') == 'Bullish':
-            bullish_signals += 1
-            reasons.append("Put OI buildup > Call OI buildup (Bullish)")
-        else:
-            bearish_signals += 1
-            reasons.append("Call OI buildup > Put OI buildup (Bearish)")
         
         # RSI signals
         rsi = tech_analysis.get('rsi', 50)
@@ -926,8 +1062,9 @@ class NiftyAnalyzer:
         }
     
     def create_html_report(self, oc_analysis, tech_analysis, recommendation):
-        """Create beautiful HTML report with DUAL MOMENTUM SIDE-BY-SIDE"""
+        """Create beautiful HTML report with DUAL MOMENTUM and OI CHANGES"""
         now_ist = self.format_ist_time()
+        prev_trading_day = self.get_previous_trading_day()
         
         colors = self.config['report'].get('colors', {})
         rec = recommendation['recommendation']
@@ -964,7 +1101,22 @@ class NiftyAnalyzer:
             'bg': '#6c757d', 'bg_dark': '#5a6268', 'text': '#ffffff', 'border': '#495057'
         })
         
-        # Top CE/PE strikes HTML
+        # OI Changes data
+        oi_changes = oc_analysis.get('oi_changes', {})
+        net_call_change = oi_changes.get('net_call_change', 0)
+        net_put_change = oi_changes.get('net_put_change', 0)
+        oi_sentiment = oi_changes.get('oi_sentiment', 'Neutral')
+        oi_strength = oi_changes.get('oi_strength', 'Weak')
+        
+        # Determine OI sentiment color
+        if oi_sentiment == 'Bullish':
+            oi_color = '#28a745'
+        elif oi_sentiment == 'Bearish':
+            oi_color = '#dc3545'
+        else:
+            oi_color = '#ffc107'
+        
+        # Top CE/PE strikes HTML (without OI change column)
         top_ce_html = ''
         for i, strike in enumerate(oc_analysis.get('top_ce_strikes', [])[:5], 1):
             top_ce_html += f"""
@@ -1072,6 +1224,24 @@ class NiftyAnalyzer:
         .timestamp {{ color: #6c757d; font-size: 12px; margin-top: 8px; font-weight: bold; }}
         .timeframe-badge {{ display: inline-block; background: #ff6b6b; color: white; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: bold; margin-top: 8px; }}
         
+        /* OI CHANGE BOX - NEW */
+        .oi-change-box {{
+            background: linear-gradient(135deg, {oi_color} 0%, {oi_color}dd 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+            border: 3px solid {oi_color};
+        }}
+        .oi-change-box h3 {{ margin: 0 0 12px 0; font-size: 18px; text-align: center; }}
+        .oi-change-box .prev-day {{ font-size: 12px; text-align: center; margin-bottom: 15px; opacity: 0.9; }}
+        .oi-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }}
+        .oi-item {{ background: rgba(255,255,255,0.2); padding: 12px; border-radius: 8px; text-align: center; }}
+        .oi-item .label {{ font-size: 11px; margin-bottom: 5px; text-transform: uppercase; }}
+        .oi-item .value {{ font-size: 24px; font-weight: bold; }}
+        .oi-sentiment {{ text-align: center; margin-top: 12px; font-size: 16px; font-weight: bold; }}
+        
         /* DUAL MOMENTUM BOXES - SIDE BY SIDE */
         .momentum-container {{ display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px; }}
         .momentum-box {{ 
@@ -1140,6 +1310,7 @@ class NiftyAnalyzer:
         @media (max-width: 768px) {{
             .container {{ padding: 12px; }}
             .header h1 {{ font-size: 20px; }}
+            .oi-grid {{ grid-template-columns: 1fr; }}
             .momentum-container {{ grid-template-columns: 1fr; gap: 10px; }}
             .momentum-box .value {{ font-size: 24px; }}
             .recommendation-box h2 {{ font-size: 22px; }}
@@ -1155,6 +1326,8 @@ class NiftyAnalyzer:
             .container {{ padding: 8px; }}
             .header h1 {{ font-size: 18px; }}
             .timeframe-badge {{ font-size: 10px; padding: 3px 8px; }}
+            .oi-change-box h3 {{ font-size: 16px; }}
+            .oi-item .value {{ font-size: 20px; }}
             .momentum-box h3 {{ font-size: 14px; }}
             .momentum-box .value {{ font-size: 20px; }}
             .recommendation-box {{ padding: 10px; }}
@@ -1169,6 +1342,25 @@ class NiftyAnalyzer:
             <h1>📊 {title}</h1>
             <div class="timeframe-badge">⏱️ 1-HOUR TIMEFRAME</div>
             <div class="timestamp">Generated on: {now_ist}</div>
+        </div>
+        
+        <!-- OI CHANGE BOX - NEW SECTION -->
+        <div class="oi-change-box">
+            <h3>📊 Open Interest Changes (Previous Trading Day)</h3>
+            <div class="prev-day">📅 Compared to: {prev_trading_day.strftime('%d %b %Y')}</div>
+            <div class="oi-grid">
+                <div class="oi-item">
+                    <div class="label">📞 Call OI Change</div>
+                    <div class="value">{net_call_change:+,}</div>
+                </div>
+                <div class="oi-item">
+                    <div class="label">📉 Put OI Change</div>
+                    <div class="value">{net_put_change:+,}</div>
+                </div>
+            </div>
+            <div class="oi-sentiment">
+                Market Sentiment: {oi_sentiment} ({oi_strength})
+            </div>
         </div>
         
         <!-- DUAL MOMENTUM DISPLAY - SIDE BY SIDE -->
@@ -1326,7 +1518,7 @@ class NiftyAnalyzer:
         
         <div class="footer">
             <p><strong>Disclaimer:</strong> This analysis is for educational purposes only. Trading involves risk.</p>
-            <p>© 2025 Nifty Trading Analyzer | Dual Momentum Analysis (1H + 5H)</p>
+            <p>© 2025 Nifty Trading Analyzer | Enhanced with OI Change Analysis & Dual Momentum</p>
         </div>
     </div>
 </body>
@@ -1369,9 +1561,11 @@ class NiftyAnalyzer:
             return False
     
     def run_analysis(self):
-        """Run complete analysis with DUAL MOMENTUM DETECTION"""
-        self.logger.info("🚀 Starting Nifty 1-HOUR Analysis with Dual Momentum...")
+        """Run complete analysis with DUAL MOMENTUM and OI CHANGE DETECTION"""
+        self.logger.info("🚀 Starting Nifty 1-HOUR Analysis with Dual Momentum & OI Changes...")
         self.logger.info("=" * 60)
+        
+        prev_trading_day = self.get_previous_trading_day()
         
         oc_df, spot_price = self.fetch_option_chain()
         
@@ -1388,8 +1582,10 @@ class NiftyAnalyzer:
         else:
             tech_analysis = self.get_sample_tech_analysis()
         
-        self.logger.info("🎯 Generating Trading Recommendation with Dual Momentum...")
+        self.logger.info("🎯 Generating Trading Recommendation with Dual Momentum & OI Changes...")
         recommendation = self.generate_recommendation(oc_analysis, tech_analysis)
+        
+        oi_changes = oc_analysis.get('oi_changes', {})
         
         self.logger.info("=" * 60)
         self.logger.info(f"📊 RECOMMENDATION: {recommendation['recommendation']}")
@@ -1397,6 +1593,10 @@ class NiftyAnalyzer:
         self.logger.info(f"🎯 RSI (1H): {tech_analysis.get('rsi', 'N/A')}")
         self.logger.info(f"⚡ 1H Momentum: {tech_analysis.get('price_change_pct_1h', 0):+.2f}% - {tech_analysis.get('momentum_1h_signal')}")
         self.logger.info(f"📊 5H Momentum: {tech_analysis.get('momentum_5h_pct', 0):+.2f}% - {tech_analysis.get('momentum_5h_signal')}")
+        self.logger.info(f"📊 OI Changes (from {prev_trading_day}):")
+        self.logger.info(f"   Call OI: {oi_changes.get('net_call_change', 0):+,}")
+        self.logger.info(f"   Put OI: {oi_changes.get('net_put_change', 0):+,}")
+        self.logger.info(f"   Sentiment: {oi_changes.get('oi_sentiment', 'N/A')} ({oi_changes.get('oi_strength', 'N/A')})")
         self.logger.info(f"📍 Pivot Point: ₹{tech_analysis.get('pivot_points', {}).get('pivot', 'N/A')}")
         self.logger.info("=" * 60)
         
@@ -1417,13 +1617,14 @@ class NiftyAnalyzer:
         self.logger.info(f"📧 Sending email to {self.config['email']['recipient']}...")
         self.send_email(html_report)
         
-        self.logger.info("✅ Dual Momentum Analysis Complete!")
+        self.logger.info("✅ Dual Momentum & OI Change Analysis Complete!")
         
         return {
             'oc_analysis': oc_analysis,
             'tech_analysis': tech_analysis,
             'recommendation': recommendation,
-            'html_report': html_report
+            'html_report': html_report,
+            'previous_trading_day': prev_trading_day
         }
 
 
@@ -1436,4 +1637,11 @@ if __name__ == "__main__":
     print(f"RSI (1H): {result['tech_analysis']['rsi']}")
     print(f"1H Momentum: {result['tech_analysis']['price_change_pct_1h']:+.2f}% - {result['tech_analysis']['momentum_1h_signal']}")
     print(f"5H Momentum: {result['tech_analysis']['momentum_5h_pct']:+.2f}% - {result['tech_analysis']['momentum_5h_signal']}")
-    print(f"Check your email for the detailed report!")
+    
+    oi_changes = result['oc_analysis'].get('oi_changes', {})
+    print(f"\nOI Changes from {result['previous_trading_day']}:")
+    print(f"Call OI Change: {oi_changes.get('net_call_change', 0):+,}")
+    print(f"Put OI Change: {oi_changes.get('net_put_change', 0):+,}")
+    print(f"OI Sentiment: {oi_changes.get('oi_sentiment', 'N/A')} ({oi_changes.get('oi_strength', 'N/A')})")
+    
+    print(f"\nCheck your email for the detailed report!")
