@@ -4,7 +4,7 @@ COMPLETE VERSION - Both 1H and 5H Momentum Side-by-Side
 1-HOUR TIMEFRAME with WILDER'S RSI (matches TradingView)
 Enhanced with Pivot Points + Dual Momentum Analysis + Top 10 OI Display
 EXPIRY: Weekly TUESDAY expiry with 3:30 PM IST cutoff logic
-FIXED: Correct NSE API v3 URL with automatic Tuesday expiry date calculation
+FIXED: Using curl-cffi for NSE API to bypass anti-scraping
 """
 
 import pandas as pd
@@ -12,7 +12,7 @@ import numpy as np
 from datetime import datetime, timedelta
 import pytz
 import yfinance as yf
-import requests
+from curl_cffi import requests  # ← CHANGED: Using curl-cffi instead of requests
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -20,6 +20,7 @@ import warnings
 import yaml
 import os
 import logging
+import time
 
 warnings.filterwarnings('ignore')
 
@@ -33,12 +34,16 @@ class NiftyAnalyzer:
         self.ist = pytz.timezone('Asia/Kolkata')
         
         self.nifty_symbol = "^NSEI"
-        # NEW: Using correct v3 API endpoint
+        # Using correct v3 API endpoint
         self.option_chain_base_url = "https://www.nseindia.com/api/option-chain-v3?type=Indices&symbol=NIFTY&expiry="
+        
+        # Headers that work with NSE (from working script)
         self.headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Accept-Encoding': 'gzip, deflate, br'
+            "authority": "www.nseindia.com",
+            "accept": "application/json, text/plain, */*",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+            "referer": "https://www.nseindia.com/option-chain",
+            "accept-language": "en-US,en;q=0.9",
         }
     
     def get_next_expiry_date(self):
@@ -163,7 +168,7 @@ class NiftyAnalyzer:
                 'technical_source': 'yahoo',
                 'max_retries': 3,
                 'retry_delay': 2,
-                'timeout': 10,
+                'timeout': 30,  # Increased timeout for curl-cffi
                 'fallback_to_sample': True
             },
             'logging': {
@@ -204,130 +209,17 @@ class NiftyAnalyzer:
             self.logger.addHandler(file_handler)
     
     def fetch_option_chain(self):
-        """Fetch Nifty option chain data from NSE using correct v3 API"""
-        source = self.config['data_source']['option_chain_source']
-        
-        if source == 'csv':
-            return self.fetch_option_chain_from_csv()
-        elif source == 'sample':
+        """Fetch Nifty option chain data from NSE using curl-cffi (WORKING METHOD)"""
+        if self.config['data_source']['option_chain_source'] == 'sample':
             self.logger.info("Using sample option chain data")
             return None, None
         
-        # Try NSE API
-        oc_df, spot_price = self.fetch_option_chain_from_nse()
-        
-        # If NSE fails and fallback_to_csv is enabled, try CSV
-        if (oc_df is None or spot_price is None) and self.config['data_source'].get('fallback_to_csv', False):
-            self.logger.warning("NSE API failed, attempting to read from CSV file...")
-            return self.fetch_option_chain_from_csv()
-        
-        return oc_df, spot_price
-    
-    def fetch_option_chain_from_csv(self):
-        """Fetch option chain data from CSV file (NSE format)"""
-        import csv
-        
-        csv_path = self.config['data_source'].get('csv_file_path', './option_chain_data.csv')
-        
-        try:
-            self.logger.info(f"Reading option chain data from CSV: {csv_path}")
-            
-            with open(csv_path, 'r') as f:
-                reader = csv.reader(f)
-                rows = list(reader)
-            
-            # NSE CSV format:
-            # Row 0: ['CALLS', '', 'PUTS']
-            # Row 1: Column headers
-            # Row 2+: Data
-            # Column 1: CE OI, Column 11: STRIKE, Column 21: PE OI
-            # Columns 2,3,4,5,6: CE Chng OI, Volume, IV, LTP, Chng
-            # Columns 20,19,18,17,16: PE Chng OI, Volume, IV, LTP, Chng
-            
-            calls_data = []
-            puts_data = []
-            spot_prices = []
-            
-            for row in rows[2:]:  # Skip header rows
-                if len(row) > 21:
-                    try:
-                        strike_str = row[11].replace(',', '').strip()
-                        if not strike_str:
-                            continue
-                        
-                        strike = float(strike_str)
-                        
-                        # Parse CE data
-                        ce_oi_str = row[1].replace(',', '').strip()
-                        ce_chng_oi_str = row[2].replace(',', '').strip() if row[2] not in ['-', ''] else '0'
-                        ce_volume_str = row[3].replace(',', '').strip() if row[3] not in ['-', ''] else '0'
-                        ce_iv_str = row[4].replace(',', '').strip() if row[4] not in ['-', ''] else '0'
-                        ce_ltp_str = row[5].replace(',', '').strip() if row[5] not in ['-', ''] else '0'
-                        
-                        calls_data.append({
-                            'Strike': strike,
-                            'Call_OI': int(ce_oi_str) if ce_oi_str.isdigit() else 0,
-                            'Call_Chng_OI': int(ce_chng_oi_str) if ce_chng_oi_str.replace('-', '').isdigit() else 0,
-                            'Call_Volume': int(ce_volume_str) if ce_volume_str.isdigit() else 0,
-                            'Call_IV': float(ce_iv_str) if ce_iv_str.replace('.', '').isdigit() else 0,
-                            'Call_LTP': float(ce_ltp_str) if ce_ltp_str.replace('.', '').replace(',', '').isdigit() else 0
-                        })
-                        
-                        # Parse PE data
-                        pe_oi_str = row[21].replace(',', '').strip()
-                        pe_chng_oi_str = row[20].replace(',', '').strip() if row[20] not in ['-', ''] else '0'
-                        pe_volume_str = row[19].replace(',', '').strip() if row[19] not in ['-', ''] else '0'
-                        pe_iv_str = row[18].replace(',', '').strip() if row[18] not in ['-', ''] else '0'
-                        pe_ltp_str = row[17].replace(',', '').strip() if row[17] not in ['-', ''] else '0'
-                        
-                        puts_data.append({
-                            'Strike': strike,
-                            'Put_OI': int(pe_oi_str) if pe_oi_str.isdigit() else 0,
-                            'Put_Chng_OI': int(pe_chng_oi_str) if pe_chng_oi_str.replace('-', '').isdigit() else 0,
-                            'Put_Volume': int(pe_volume_str) if pe_volume_str.isdigit() else 0,
-                            'Put_IV': float(pe_iv_str) if pe_iv_str.replace('.', '').isdigit() else 0,
-                            'Put_LTP': float(pe_ltp_str) if pe_ltp_str.replace('.', '').replace(',', '').isdigit() else 0
-                        })
-                        
-                        # Estimate spot price (strikes with highest combined OI)
-                        spot_prices.append((strike, int(ce_oi_str) if ce_oi_str.isdigit() else 0, 
-                                          int(pe_oi_str) if pe_oi_str.isdigit() else 0))
-                    except Exception as e:
-                        self.logger.debug(f"Error parsing row: {e}")
-                        continue
-            
-            # Create DataFrames
-            calls_df = pd.DataFrame(calls_data)
-            puts_df = pd.DataFrame(puts_data)
-            
-            oc_df = pd.merge(calls_df, puts_df, on='Strike', how='outer')
-            oc_df = oc_df.fillna(0)
-            oc_df = oc_df.sort_values('Strike')
-            
-            # Estimate spot price (around ATM - highest combined OI)
-            if spot_prices:
-                spot_prices_sorted = sorted(spot_prices, key=lambda x: x[1] + x[2], reverse=True)
-                spot_price = spot_prices_sorted[0][0]
-            else:
-                spot_price = 25500  # Default fallback
-            
-            self.logger.info(f"✅ CSV data loaded | {len(oc_df)} strikes | Estimated Spot: ₹{spot_price}")
-            return oc_df, spot_price
-            
-        except FileNotFoundError:
-            self.logger.error(f"CSV file not found: {csv_path}")
-            return None, None
-        except Exception as e:
-            self.logger.error(f"Error reading CSV file: {e}")
-            return None, None
-    
-    def fetch_option_chain_from_nse(self):
-        """Fetch Nifty option chain data from NSE API"""
-    def fetch_option_chain_from_nse(self):
-        """Fetch Nifty option chain data from NSE API"""
         # Get the correct expiry date
         expiry_date = self.get_next_expiry_date()
-        option_chain_url = self.option_chain_base_url + expiry_date
+        symbol = "NIFTY"
+        
+        api_url = f"https://www.nseindia.com/api/option-chain-v3?type=Indices&symbol={symbol}&expiry={expiry_date}"
+        base_url = "https://www.nseindia.com/"
         
         max_retries = self.config['data_source']['max_retries']
         retry_delay = self.config['data_source']['retry_delay']
@@ -337,63 +229,80 @@ class NiftyAnalyzer:
             try:
                 self.logger.info(f"Fetching option chain data for expiry {expiry_date} (attempt {attempt + 1}/{max_retries})...")
                 
+                # Create session with curl-cffi
                 session = requests.Session()
-                # First visit the main page to get cookies
-                session.get("https://www.nseindia.com", headers=self.headers, timeout=timeout)
                 
-                # Now fetch the option chain data
-                response = session.get(option_chain_url, headers=self.headers, timeout=timeout)
-                data = response.json()
+                # First visit the main page to get cookies (impersonate Chrome) ← KEY CHANGE
+                session.get(base_url, headers=self.headers, impersonate="chrome", timeout=15)
                 
-                if 'records' in data and 'data' in data['records']:
-                    option_data = data['records']['data']
-                    current_price = data['records']['underlyingValue']
+                # Small delay to mimic human behavior
+                time.sleep(1)
+                
+                # Now fetch the option chain data (impersonate Chrome) ← KEY CHANGE
+                response = session.get(api_url, headers=self.headers, impersonate="chrome", timeout=timeout)
+                
+                if response.status_code == 200:
+                    data = response.json()
                     
-                    calls_data = []
-                    puts_data = []
-                    
-                    for item in option_data:
-                        strike = item.get('strikePrice', 0)
+                    if 'records' in data and 'data' in data['records']:
+                        option_data = data['records']['data']
+                        current_price = data['records']['underlyingValue']
                         
-                        if 'CE' in item:
-                            ce = item['CE']
-                            calls_data.append({
-                                'Strike': strike,
-                                'Call_OI': ce.get('openInterest', 0),
-                                'Call_Chng_OI': ce.get('changeinOpenInterest', 0),
-                                'Call_Volume': ce.get('totalTradedVolume', 0),
-                                'Call_IV': ce.get('impliedVolatility', 0),
-                                'Call_LTP': ce.get('lastPrice', 0)
-                            })
+                        if not option_data:
+                            self.logger.warning(f"No option data for expiry {expiry_date}")
+                            continue
                         
-                        if 'PE' in item:
-                            pe = item['PE']
-                            puts_data.append({
-                                'Strike': strike,
-                                'Put_OI': pe.get('openInterest', 0),
-                                'Put_Chng_OI': pe.get('changeinOpenInterest', 0),
-                                'Put_Volume': pe.get('totalTradedVolume', 0),
-                                'Put_IV': pe.get('impliedVolatility', 0),
-                                'Put_LTP': pe.get('lastPrice', 0)
-                            })
-                    
-                    calls_df = pd.DataFrame(calls_data)
-                    puts_df = pd.DataFrame(puts_data)
-                    
-                    oc_df = pd.merge(calls_df, puts_df, on='Strike', how='outer')
-                    oc_df = oc_df.fillna(0)
-                    oc_df = oc_df.sort_values('Strike')
-                    
-                    self.logger.info(f"✅ Option chain data fetched successfully | Spot: ₹{current_price} | Expiry: {expiry_date}")
-                    return oc_df, current_price
+                        calls_data = []
+                        puts_data = []
+                        
+                        for item in option_data:
+                            strike = item.get('strikePrice', 0)
+                            
+                            if 'CE' in item:
+                                ce = item['CE']
+                                calls_data.append({
+                                    'Strike': strike,
+                                    'Call_OI': ce.get('openInterest', 0),
+                                    'Call_Chng_OI': ce.get('changeinOpenInterest', 0),
+                                    'Call_Volume': ce.get('totalTradedVolume', 0),
+                                    'Call_IV': ce.get('impliedVolatility', 0),
+                                    'Call_LTP': ce.get('lastPrice', 0)
+                                })
+                            
+                            if 'PE' in item:
+                                pe = item['PE']
+                                puts_data.append({
+                                    'Strike': strike,
+                                    'Put_OI': pe.get('openInterest', 0),
+                                    'Put_Chng_OI': pe.get('changeinOpenInterest', 0),
+                                    'Put_Volume': pe.get('totalTradedVolume', 0),
+                                    'Put_IV': pe.get('impliedVolatility', 0),
+                                    'Put_LTP': pe.get('lastPrice', 0)
+                                })
+                        
+                        calls_df = pd.DataFrame(calls_data)
+                        puts_df = pd.DataFrame(puts_data)
+                        
+                        oc_df = pd.merge(calls_df, puts_df, on='Strike', how='outer')
+                        oc_df = oc_df.fillna(0)
+                        oc_df = oc_df.sort_values('Strike')
+                        
+                        self.logger.info(f"✅ Option chain data fetched successfully | Spot: ₹{current_price} | Expiry: {expiry_date}")
+                        self.logger.info(f"✅ Total strikes fetched: {len(oc_df)}")
+                        return oc_df, current_price
+                    else:
+                        self.logger.warning("Invalid response structure from NSE API")
+                else:
+                    self.logger.warning(f"NSE API returned status code: {response.status_code}")
                 
             except Exception as e:
                 self.logger.warning(f"Attempt {attempt + 1} failed: {e}")
                 if attempt < max_retries - 1:
-                    import time
                     time.sleep(retry_delay)
         
-        self.logger.warning("All NSE API attempts failed")
+        if self.config['data_source']['fallback_to_sample']:
+            self.logger.warning("All NSE API attempts failed, using sample data")
+        
         return None, None
     
     def get_top_strikes_by_oi(self, oc_df, spot_price):
@@ -1095,7 +1004,7 @@ class NiftyAnalyzer:
         }
     
     def create_html_report(self, oc_analysis, tech_analysis, recommendation):
-        """Create beautiful HTML report with DUAL MOMENTUM SIDE-BY-SIDE and TOP 10 OI"""
+        """Create beautiful HTML report with DUAL MOMENTUM SIDE-BY-SIDE"""
         now_ist = self.format_ist_time()
         
         colors = self.config['report'].get('colors', {})
@@ -1221,20 +1130,20 @@ class NiftyAnalyzer:
                         <td>₹{pivot_points.get('pivot', 'N/A')}</td>
                         <td>{f'{pivot_points.get("pivot", 0) - current_price:+.2f}' if pivot_points.get('pivot') else 'N/A'}</td>
                     </tr>
-                    <tr class="pivot-row support {get_level_class(pivot_points.get('s3'))}">
-                        <td>S3</td>
-                        <td>₹{pivot_points.get('s3', 'N/A')}{' <span class="highlight-badge">NEAREST S</span>' if pivot_points.get('s3') == nearest_levels.get('nearest_support') else ''}</td>
-                        <td>{f'{pivot_points.get("s3", 0) - current_price:.2f}' if pivot_points.get('s3') else 'N/A'}</td>
+                    <tr class="pivot-row support {get_level_class(pivot_points.get('s1'))}">
+                        <td>S1</td>
+                        <td>₹{pivot_points.get('s1', 'N/A')}{' <span class="highlight-badge">NEAREST S</span>' if pivot_points.get('s1') == nearest_levels.get('nearest_support') else ''}</td>
+                        <td>{f'{pivot_points.get("s1", 0) - current_price:.2f}' if pivot_points.get('s1') else 'N/A'}</td>
                     </tr>
                     <tr class="pivot-row support {get_level_class(pivot_points.get('s2'))}">
                         <td>S2</td>
                         <td>₹{pivot_points.get('s2', 'N/A')}{' <span class="highlight-badge">NEAREST S</span>' if pivot_points.get('s2') == nearest_levels.get('nearest_support') else ''}</td>
                         <td>{f'{pivot_points.get("s2", 0) - current_price:.2f}' if pivot_points.get('s2') else 'N/A'}</td>
                     </tr>
-                    <tr class="pivot-row support {get_level_class(pivot_points.get('s1'))}">
-                        <td>S1</td>
-                        <td>₹{pivot_points.get('s1', 'N/A')}{' <span class="highlight-badge">NEAREST S</span>' if pivot_points.get('s1') == nearest_levels.get('nearest_support') else ''}</td>
-                        <td>{f'{pivot_points.get("s1", 0) - current_price:.2f}' if pivot_points.get('s1') else 'N/A'}</td>
+                    <tr class="pivot-row support {get_level_class(pivot_points.get('s3'))}">
+                        <td>S3</td>
+                        <td>₹{pivot_points.get('s3', 'N/A')}{' <span class="highlight-badge">NEAREST S</span>' if pivot_points.get('s3') == nearest_levels.get('nearest_support') else ''}</td>
+                        <td>{f'{pivot_points.get("s3", 0) - current_price:.2f}' if pivot_points.get('s3') else 'N/A'}</td>
                     </tr>
         """
         
