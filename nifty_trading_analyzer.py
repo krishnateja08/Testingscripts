@@ -1,6 +1,6 @@
 """
 Nifty Option Chain & Technical Analysis for Day Trading
-ENHANCED VERSION with Previous Day OI Change Analysis
+FINAL VERSION with NSE API v3 and OI Change Analysis
 Includes weekend/holiday detection and OI buildup tracking
 """
 
@@ -30,11 +30,14 @@ class NiftyAnalyzer:
         self.ist = pytz.timezone('Asia/Kolkata')
         
         self.nifty_symbol = "^NSEI"
-        self.option_chain_url = "https://www.nseindia.com/api/option-chain-indices?symbol=NIFTY"
+        # NSE API v3 - CORRECT URL
+        self.option_chain_base_url = "https://www.nseindia.com/api/option-chain-v3"
         self.headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
             'Accept-Language': 'en-US,en;q=0.9',
-            'Accept-Encoding': 'gzip, deflate, br'
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Accept': 'application/json, text/plain, */*',
+            'Referer': 'https://www.nseindia.com/option-chain'
         }
         
         # Indian stock market holidays for 2025 (add more as needed)
@@ -69,6 +72,37 @@ class NiftyAnalyzer:
         else:
             dt = dt.astimezone(self.ist)
         return dt.strftime("%Y-%m-%d %H:%M:%S IST")
+    
+    def get_nearest_expiry(self):
+        """Get the nearest Thursday expiry for NIFTY weekly options"""
+        try:
+            current_date = self.get_ist_time().date()
+            
+            # NIFTY weekly options expire on Thursdays
+            # Find the next Thursday
+            days_ahead = (3 - current_date.weekday()) % 7  # 3 = Thursday
+            if days_ahead == 0:
+                # If today is Thursday, check if market hours have passed
+                current_time = self.get_ist_time().time()
+                if current_time.hour >= 15 and current_time.minute >= 30:
+                    # After 3:30 PM on Thursday, use next Thursday
+                    days_ahead = 7
+            
+            if days_ahead == 0:
+                next_thursday = current_date
+            else:
+                next_thursday = current_date + timedelta(days=days_ahead)
+            
+            # Format as DD-MMM-YYYY (e.g., 16-Jan-2025)
+            expiry_str = next_thursday.strftime('%d-%b-%Y')
+            
+            self.logger.info(f"📅 Using expiry date: {expiry_str}")
+            return expiry_str
+            
+        except Exception as e:
+            self.logger.error(f"Error calculating expiry: {e}")
+            # Default fallback - use a Thursday in the future
+            return "23-Jan-2025"
     
     def is_market_holiday(self, date):
         """Check if a given date is a market holiday"""
@@ -164,7 +198,7 @@ class NiftyAnalyzer:
                 'technical_source': 'yahoo',
                 'max_retries': 3,
                 'retry_delay': 2,
-                'timeout': 10,
+                'timeout': 15,
                 'fallback_to_sample': True
             },
             'logging': {
@@ -205,23 +239,38 @@ class NiftyAnalyzer:
             self.logger.addHandler(file_handler)
     
     def fetch_option_chain(self):
-        """Fetch Nifty option chain data from NSE"""
+        """Fetch Nifty option chain data from NSE using API v3"""
         if self.config['data_source']['option_chain_source'] == 'sample':
             self.logger.info("Using sample option chain data")
             return None, None
-            
+        
+        # Get nearest expiry
+        expiry = self.get_nearest_expiry()
+        
+        # Build the v3 API URL with expiry parameter
+        symbol = "NIFTY"
+        option_chain_url = f"{self.option_chain_base_url}?type=Indices&symbol={symbol}&expiry={expiry}"
+        
         max_retries = self.config['data_source']['max_retries']
         retry_delay = self.config['data_source']['retry_delay']
         timeout = self.config['data_source']['timeout']
         
         for attempt in range(max_retries):
             try:
-                self.logger.info(f"Fetching option chain data (attempt {attempt + 1}/{max_retries})...")
+                self.logger.info(f"Fetching option chain data v3 (attempt {attempt + 1}/{max_retries})...")
+                self.logger.info(f"URL: {option_chain_url}")
                 
                 session = requests.Session()
+                # First visit NSE homepage to establish session and get cookies
                 session.get("https://www.nseindia.com", headers=self.headers, timeout=timeout)
                 
-                response = session.get(self.option_chain_url, headers=self.headers, timeout=timeout)
+                # Now fetch option chain with v3 API
+                response = session.get(option_chain_url, headers=self.headers, timeout=timeout)
+                
+                if response.status_code != 200:
+                    self.logger.warning(f"HTTP {response.status_code}: {response.text[:200]}")
+                    raise Exception(f"HTTP Status {response.status_code}")
+                
                 data = response.json()
                 
                 if 'records' in data and 'data' in data['records']:
@@ -263,7 +312,7 @@ class NiftyAnalyzer:
                     oc_df = oc_df.fillna(0)
                     oc_df = oc_df.sort_values('Strike')
                     
-                    self.logger.info(f"✅ Option chain data fetched successfully | Spot: ₹{current_price}")
+                    self.logger.info(f"✅ Option chain data fetched successfully | Spot: ₹{current_price} | Expiry: {expiry}")
                     return oc_df, current_price
                 
             except Exception as e:
@@ -1518,7 +1567,7 @@ class NiftyAnalyzer:
         
         <div class="footer">
             <p><strong>Disclaimer:</strong> This analysis is for educational purposes only. Trading involves risk.</p>
-            <p>© 2025 Nifty Trading Analyzer | Enhanced with OI Change Analysis & Dual Momentum</p>
+            <p>© 2025 Nifty Trading Analyzer | NSE API v3 | Enhanced with OI Change Analysis & Dual Momentum</p>
         </div>
     </div>
 </body>
