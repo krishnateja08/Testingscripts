@@ -1015,7 +1015,6 @@ class NiftyAnalyzer:
                     <td>₹{strike['strike']}</td>
                     <td>{strike['oi']:,}</td>
                     <td>₹{strike['ltp']}</td>
-                    <td>{strike['iv']}%</td>
                     <td><span class="badge-{strike['type'].lower()}">{strike['type']}</span></td>
                 </tr>
             """
@@ -1028,7 +1027,6 @@ class NiftyAnalyzer:
                     <td>₹{strike['strike']}</td>
                     <td>{strike['oi']:,}</td>
                     <td>₹{strike['ltp']}</td>
-                    <td>{strike['iv']}%</td>
                     <td><span class="badge-{strike['type'].lower()}">{strike['type']}</span></td>
                 </tr>
             """
@@ -1338,14 +1336,14 @@ class NiftyAnalyzer:
                 <div class="levels-box" style="border-left: 4px solid #dc3545;">
                     <h4>📞 Call Options</h4>
                     <table class="oi-table">
-                        <thead><tr><th>#</th><th>Strike</th><th>OI</th><th>LTP</th><th>IV</th><th>Type</th></tr></thead>
+                        <thead><tr><th>#</th><th>Strike</th><th>OI</th><th>LTP</th><th>Type</th></tr></thead>
                         <tbody>{top_ce_html}</tbody>
                     </table>
                 </div>
                 <div class="levels-box" style="border-left: 4px solid #28a745;">
                     <h4>📉 Put Options</h4>
                     <table class="oi-table">
-                        <thead><tr><th>#</th><th>Strike</th><th>OI</th><th>LTP</th><th>IV</th><th>Type</th></tr></thead>
+                        <thead><tr><th>#</th><th>Strike</th><th>OI</th><th>LTP</th><th>Type</th></tr></thead>
                         <tbody>{top_pe_html}</tbody>
                     </table>
                 </div>
