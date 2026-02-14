@@ -205,10 +205,126 @@ class NiftyAnalyzer:
     
     def fetch_option_chain(self):
         """Fetch Nifty option chain data from NSE using correct v3 API"""
-        if self.config['data_source']['option_chain_source'] == 'sample':
+        source = self.config['data_source']['option_chain_source']
+        
+        if source == 'csv':
+            return self.fetch_option_chain_from_csv()
+        elif source == 'sample':
             self.logger.info("Using sample option chain data")
             return None, None
         
+        # Try NSE API
+        oc_df, spot_price = self.fetch_option_chain_from_nse()
+        
+        # If NSE fails and fallback_to_csv is enabled, try CSV
+        if (oc_df is None or spot_price is None) and self.config['data_source'].get('fallback_to_csv', False):
+            self.logger.warning("NSE API failed, attempting to read from CSV file...")
+            return self.fetch_option_chain_from_csv()
+        
+        return oc_df, spot_price
+    
+    def fetch_option_chain_from_csv(self):
+        """Fetch option chain data from CSV file (NSE format)"""
+        import csv
+        
+        csv_path = self.config['data_source'].get('csv_file_path', './option_chain_data.csv')
+        
+        try:
+            self.logger.info(f"Reading option chain data from CSV: {csv_path}")
+            
+            with open(csv_path, 'r') as f:
+                reader = csv.reader(f)
+                rows = list(reader)
+            
+            # NSE CSV format:
+            # Row 0: ['CALLS', '', 'PUTS']
+            # Row 1: Column headers
+            # Row 2+: Data
+            # Column 1: CE OI, Column 11: STRIKE, Column 21: PE OI
+            # Columns 2,3,4,5,6: CE Chng OI, Volume, IV, LTP, Chng
+            # Columns 20,19,18,17,16: PE Chng OI, Volume, IV, LTP, Chng
+            
+            calls_data = []
+            puts_data = []
+            spot_prices = []
+            
+            for row in rows[2:]:  # Skip header rows
+                if len(row) > 21:
+                    try:
+                        strike_str = row[11].replace(',', '').strip()
+                        if not strike_str:
+                            continue
+                        
+                        strike = float(strike_str)
+                        
+                        # Parse CE data
+                        ce_oi_str = row[1].replace(',', '').strip()
+                        ce_chng_oi_str = row[2].replace(',', '').strip() if row[2] not in ['-', ''] else '0'
+                        ce_volume_str = row[3].replace(',', '').strip() if row[3] not in ['-', ''] else '0'
+                        ce_iv_str = row[4].replace(',', '').strip() if row[4] not in ['-', ''] else '0'
+                        ce_ltp_str = row[5].replace(',', '').strip() if row[5] not in ['-', ''] else '0'
+                        
+                        calls_data.append({
+                            'Strike': strike,
+                            'Call_OI': int(ce_oi_str) if ce_oi_str.isdigit() else 0,
+                            'Call_Chng_OI': int(ce_chng_oi_str) if ce_chng_oi_str.replace('-', '').isdigit() else 0,
+                            'Call_Volume': int(ce_volume_str) if ce_volume_str.isdigit() else 0,
+                            'Call_IV': float(ce_iv_str) if ce_iv_str.replace('.', '').isdigit() else 0,
+                            'Call_LTP': float(ce_ltp_str) if ce_ltp_str.replace('.', '').replace(',', '').isdigit() else 0
+                        })
+                        
+                        # Parse PE data
+                        pe_oi_str = row[21].replace(',', '').strip()
+                        pe_chng_oi_str = row[20].replace(',', '').strip() if row[20] not in ['-', ''] else '0'
+                        pe_volume_str = row[19].replace(',', '').strip() if row[19] not in ['-', ''] else '0'
+                        pe_iv_str = row[18].replace(',', '').strip() if row[18] not in ['-', ''] else '0'
+                        pe_ltp_str = row[17].replace(',', '').strip() if row[17] not in ['-', ''] else '0'
+                        
+                        puts_data.append({
+                            'Strike': strike,
+                            'Put_OI': int(pe_oi_str) if pe_oi_str.isdigit() else 0,
+                            'Put_Chng_OI': int(pe_chng_oi_str) if pe_chng_oi_str.replace('-', '').isdigit() else 0,
+                            'Put_Volume': int(pe_volume_str) if pe_volume_str.isdigit() else 0,
+                            'Put_IV': float(pe_iv_str) if pe_iv_str.replace('.', '').isdigit() else 0,
+                            'Put_LTP': float(pe_ltp_str) if pe_ltp_str.replace('.', '').replace(',', '').isdigit() else 0
+                        })
+                        
+                        # Estimate spot price (strikes with highest combined OI)
+                        spot_prices.append((strike, int(ce_oi_str) if ce_oi_str.isdigit() else 0, 
+                                          int(pe_oi_str) if pe_oi_str.isdigit() else 0))
+                    except Exception as e:
+                        self.logger.debug(f"Error parsing row: {e}")
+                        continue
+            
+            # Create DataFrames
+            calls_df = pd.DataFrame(calls_data)
+            puts_df = pd.DataFrame(puts_data)
+            
+            oc_df = pd.merge(calls_df, puts_df, on='Strike', how='outer')
+            oc_df = oc_df.fillna(0)
+            oc_df = oc_df.sort_values('Strike')
+            
+            # Estimate spot price (around ATM - highest combined OI)
+            if spot_prices:
+                spot_prices_sorted = sorted(spot_prices, key=lambda x: x[1] + x[2], reverse=True)
+                spot_price = spot_prices_sorted[0][0]
+            else:
+                spot_price = 25500  # Default fallback
+            
+            self.logger.info(f"✅ CSV data loaded | {len(oc_df)} strikes | Estimated Spot: ₹{spot_price}")
+            return oc_df, spot_price
+            
+        except FileNotFoundError:
+            self.logger.error(f"CSV file not found: {csv_path}")
+            return None, None
+        except Exception as e:
+            self.logger.error(f"Error reading CSV file: {e}")
+            return None, None
+    
+    def fetch_option_chain_from_nse(self):
+        """Fetch Nifty option chain data from NSE API"""
+    def fetch_option_chain_from_nse(self):
+        """Fetch Nifty option chain data from NSE API"""
         # Get the correct expiry date
         expiry_date = self.get_next_expiry_date()
         option_chain_url = self.option_chain_base_url + expiry_date
@@ -277,9 +393,7 @@ class NiftyAnalyzer:
                     import time
                     time.sleep(retry_delay)
         
-        if self.config['data_source']['fallback_to_sample']:
-            self.logger.warning("All attempts failed, using sample data")
-        
+        self.logger.warning("All NSE API attempts failed")
         return None, None
     
     def get_top_strikes_by_oi(self, oc_df, spot_price):
