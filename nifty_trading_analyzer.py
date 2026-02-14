@@ -186,6 +186,22 @@ class NiftyAnalyzer:
             }
         
         try:
+            # Debug: Check if changeinOpenInterest columns exist and have data
+            self.logger.info(f"🔍 Checking OI change data availability...")
+            self.logger.info(f"   Call_Chng_OI column exists: {'Call_Chng_OI' in oc_df.columns}")
+            self.logger.info(f"   Put_Chng_OI column exists: {'Put_Chng_OI' in oc_df.columns}")
+            
+            if 'Call_Chng_OI' in oc_df.columns and 'Put_Chng_OI' in oc_df.columns:
+                # Check sample values
+                non_zero_call = (oc_df['Call_Chng_OI'] != 0).sum()
+                non_zero_put = (oc_df['Put_Chng_OI'] != 0).sum()
+                self.logger.info(f"   Non-zero Call OI changes: {non_zero_call} strikes")
+                self.logger.info(f"   Non-zero Put OI changes: {non_zero_put} strikes")
+                
+                # Show sample data
+                sample_strikes = oc_df.head(3)[['Strike', 'Call_Chng_OI', 'Put_Chng_OI']]
+                self.logger.info(f"   Sample data:\n{sample_strikes}")
+            
             # NSE provides changeinOpenInterest - sum across all strikes
             total_call_oi_change = oc_df['Call_Chng_OI'].sum()
             total_put_oi_change = oc_df['Put_Chng_OI'].sum()
@@ -194,26 +210,43 @@ class NiftyAnalyzer:
             total_call_oi = oc_df['Call_OI'].sum()
             total_put_oi = oc_df['Put_OI'].sum()
             
+            self.logger.info(f"📊 Total Call OI Change: {total_call_oi_change:,.0f}")
+            self.logger.info(f"📊 Total Put OI Change: {total_put_oi_change:,.0f}")
+            self.logger.info(f"📊 Total Call OI: {total_call_oi:,.0f}")
+            self.logger.info(f"📊 Total Put OI: {total_put_oi:,.0f}")
+            
             # Calculate percentage change (based on current OI)
             # If change is positive, previous OI = current - change
-            call_oi_pct = (total_call_oi_change / (total_call_oi - total_call_oi_change) * 100) if (total_call_oi - total_call_oi_change) > 0 else 0
-            put_oi_pct = (total_put_oi_change / (total_put_oi - total_put_oi_change) * 100) if (total_put_oi - total_put_oi_change) > 0 else 0
+            if (total_call_oi - total_call_oi_change) > 0:
+                call_oi_pct = (total_call_oi_change / (total_call_oi - total_call_oi_change) * 100)
+            else:
+                call_oi_pct = 0
+                
+            if (total_put_oi - total_put_oi_change) > 0:
+                put_oi_pct = (total_put_oi_change / (total_put_oi - total_put_oi_change) * 100)
+            else:
+                put_oi_pct = 0
             
             # Net OI change (Put - Call)
             net_oi_change = total_put_oi_change - total_call_oi_change
             
-            # Check if there's actual change (not a holiday/weekend)
-            is_trading_day = abs(total_call_oi_change) > 0 or abs(total_put_oi_change) > 0
+            # Check if there's actual change (not a holiday/weekend or NSE data issue)
+            # Consider it a trading day if absolute change is > 1000 (threshold)
+            MIN_CHANGE_THRESHOLD = 1000
+            is_trading_day = (abs(total_call_oi_change) > MIN_CHANGE_THRESHOLD or 
+                            abs(total_put_oi_change) > MIN_CHANGE_THRESHOLD)
             
             if not is_trading_day:
+                self.logger.warning(f"⚠️ No significant OI change detected (Call: {total_call_oi_change:,.0f}, Put: {total_put_oi_change:,.0f})")
+                self.logger.warning(f"   This could mean: Weekend/Holiday OR NSE API not providing changeinOpenInterest data")
                 return {
-                    'total_call_oi_change': 0,
-                    'total_put_oi_change': 0,
+                    'total_call_oi_change': total_call_oi_change,
+                    'total_put_oi_change': total_put_oi_change,
                     'call_oi_pct_change': 0,
                     'put_oi_pct_change': 0,
                     'net_oi_change': 0,
                     'oi_sentiment': 'No Trading',
-                    'market_direction': 'Weekend/Holiday - No OI Change',
+                    'market_direction': 'Weekend/Holiday OR No OI Change Data from NSE',
                     'confidence_level': 'N/A',
                     'has_data': False,
                     'is_trading_day': False
@@ -270,6 +303,8 @@ class NiftyAnalyzer:
             
         except Exception as e:
             self.logger.error(f"❌ Error analyzing OI change: {e}")
+            import traceback
+            self.logger.error(traceback.format_exc())
             return {
                 'total_call_oi_change': 0,
                 'total_put_oi_change': 0,
@@ -1168,10 +1203,17 @@ class NiftyAnalyzer:
             oi_change_html = f"""
         <div class="section">
             <div class="section-title">📊 Open Interest Change Analysis</div>
-            <div class="info-box" style="background-color: #d1ecf1; border-left: 4px solid #17a2b8; color: #0c5460;">
-                <p>📅 <strong>Weekend/Holiday Detected</strong></p>
-                <p>No OI change data available as markets are closed.</p>
-                <p>OI change analysis will be available on next trading day.</p>
+            <div class="info-box" style="background-color: #fff3cd; border-left: 4px solid #ffc107; color: #856404;">
+                <p>⚠️ <strong>No OI Change Data Available</strong></p>
+                <p>This could be because:</p>
+                <ul style="margin: 10px 0; padding-left: 20px;">
+                    <li>📅 <strong>Weekend/Holiday:</strong> Markets are closed, no new OI data</li>
+                    <li>🕐 <strong>Early Morning:</strong> NSE updates changeinOpenInterest during market hours (9:15 AM - 3:30 PM IST)</li>
+                    <li>🔄 <strong>API Timing:</strong> NSE may reset OI change data after market close</li>
+                    <li>📡 <strong>API Issue:</strong> NSE's changeinOpenInterest field returning 0 or null</li>
+                </ul>
+                <p><strong>💡 Solution:</strong> Run this script during market hours (9:15 AM - 3:30 PM IST) on a trading day for live OI change data.</p>
+                <p style="font-size: 11px; margin-top: 10px; opacity: 0.8;">Current Call OI Change: {oi_change_analysis.get('total_call_oi_change', 0):,.0f} | Put OI Change: {oi_change_analysis.get('total_put_oi_change', 0):,.0f}</p>
             </div>
         </div>
             """
