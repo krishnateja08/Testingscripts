@@ -1,7 +1,6 @@
 """
 Nifty Option Chain & Technical Analysis for Day Trading
-FINAL VERSION - Using proven NSE API v3 fetch method
-With OI Change Analysis and Dual Momentum
+FINAL WORKING VERSION - Using proven NSE API fetch with curl_cffi
 """
 
 import pandas as pd
@@ -9,6 +8,7 @@ import numpy as np
 from datetime import datetime, timedelta
 import pytz
 import yfinance as yf
+import requests
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -16,16 +16,6 @@ import warnings
 import yaml
 import os
 import logging
-
-# Import curl_cffi if available, fallback to requests
-try:
-    from curl_cffi import requests as curl_requests
-    USE_CURL_CFFI = True
-    print("✓ Using curl_cffi for NSE API")
-except ImportError:
-    import requests
-    USE_CURL_CFFI = False
-    print("⚠️ curl_cffi not available, using requests (may have issues with NSE)")
 
 warnings.filterwarnings('ignore')
 
@@ -39,26 +29,6 @@ class NiftyAnalyzer:
         self.ist = pytz.timezone('Asia/Kolkata')
         
         self.nifty_symbol = "^NSEI"
-        self.nse_symbol = "NIFTY"
-        
-        # Indian stock market holidays for 2025
-        self.market_holidays = [
-            '2025-01-26',  # Republic Day
-            '2025-03-14',  # Holi
-            '2025-03-31',  # Id-ul-Fitr
-            '2025-04-10',  # Mahavir Jayanti
-            '2025-04-14',  # Dr. Ambedkar Jayanti
-            '2025-04-18',  # Good Friday
-            '2025-05-01',  # Maharashtra Day
-            '2025-06-07',  # Id-ul-Adha
-            '2025-08-15',  # Independence Day
-            '2025-08-27',  # Ganesh Chaturthi
-            '2025-10-02',  # Gandhi Jayanti
-            '2025-10-21',  # Dussehra
-            '2025-10-22',  # Diwali
-            '2025-11-05',  # Gurunanak Jayanti
-            '2025-12-25',  # Christmas
-        ]
         
     def get_ist_time(self):
         """Get current time in IST"""
@@ -75,8 +45,8 @@ class NiftyAnalyzer:
         return dt.strftime("%Y-%m-%d %H:%M:%S IST")
     
     def get_upcoming_expiry_tuesday(self):
-        """Calculate nearest Tuesday expiry - EXACT COPY from working code"""
-        now = self.get_ist_time()
+        """Calculate nearest Tuesday expiry - EXACT from working code"""
+        now = datetime.now(self.ist)
         current_weekday = now.weekday()
         
         # Tuesday = 1
@@ -92,30 +62,6 @@ class NiftyAnalyzer:
             expiry_date = now + timedelta(days=days_ahead)
         
         return expiry_date.strftime('%d-%b-%Y')
-    
-    def is_market_holiday(self, date):
-        """Check if a given date is a market holiday"""
-        date_str = date.strftime('%Y-%m-%d')
-        return date_str in self.market_holidays
-    
-    def get_previous_trading_day(self):
-        """Get the previous trading day (excluding weekends and holidays)"""
-        current_date = self.get_ist_time().date()
-        previous_date = current_date - timedelta(days=1)
-        
-        while True:
-            if previous_date.weekday() >= 5:
-                previous_date -= timedelta(days=1)
-                continue
-            
-            if self.is_market_holiday(previous_date):
-                previous_date -= timedelta(days=1)
-                continue
-            
-            break
-        
-        self.logger.info(f"📅 Previous trading day: {previous_date}")
-        return previous_date
         
     def load_config(self, config_path):
         """Load configuration from YAML file"""
@@ -183,7 +129,7 @@ class NiftyAnalyzer:
                 'technical_source': 'yahoo',
                 'max_retries': 3,
                 'retry_delay': 2,
-                'timeout': 30,
+                'timeout': 10,
                 'fallback_to_sample': True
             },
             'logging': {
@@ -224,15 +170,12 @@ class NiftyAnalyzer:
             self.logger.addHandler(file_handler)
     
     def fetch_option_chain(self):
-        """
-        Fetch Nifty option chain using PROVEN working method
-        Uses your exact working code logic
-        """
+        """Fetch Nifty option chain - EXACT WORKING METHOD from your code"""
         if self.config['data_source']['option_chain_source'] == 'sample':
             self.logger.info("Using sample option chain data")
             return None, None
         
-        symbol = self.nse_symbol
+        symbol = "NIFTY"
         selected_expiry = self.get_upcoming_expiry_tuesday()
         
         # EXACT URL from your working code
@@ -250,13 +193,22 @@ class NiftyAnalyzer:
         
         max_retries = self.config['data_source']['max_retries']
         
+        # Try curl_cffi first, fallback to requests
+        try:
+            from curl_cffi import requests as curl_requests
+            USE_CURL = True
+            self.logger.info("Using curl_cffi for NSE fetch")
+        except ImportError:
+            USE_CURL = False
+            self.logger.warning("curl_cffi not available, using requests (may fail). Install: pip install curl-cffi")
+        
         for attempt in range(max_retries):
             try:
                 self.logger.info(f"Fetching option chain for {selected_expiry} (attempt {attempt + 1}/{max_retries})...")
                 self.logger.info(f"URL: {api_url}")
                 
-                if USE_CURL_CFFI:
-                    # Use curl_cffi (your working method)
+                if USE_CURL:
+                    # Your EXACT working method with curl_cffi
                     session = curl_requests.Session()
                     session.get(base_url, headers=headers, impersonate="chrome", timeout=15)
                     import time
@@ -264,9 +216,8 @@ class NiftyAnalyzer:
                     response = session.get(api_url, headers=headers, impersonate="chrome", timeout=30)
                 else:
                     # Fallback to regular requests
-                    import requests as req_lib
                     import time
-                    session = req_lib.Session()
+                    session = requests.Session()
                     session.get(base_url, headers=headers, timeout=15)
                     time.sleep(1)
                     response = session.get(api_url, headers=headers, timeout=30)
@@ -325,7 +276,7 @@ class NiftyAnalyzer:
                 self.logger.warning(f"Attempt {attempt + 1} failed: {e}")
                 if attempt < max_retries - 1:
                     import time
-                    time.sleep(self.config['data_source']['retry_delay'])
+                    time.sleep(self.config['data_source'].get('retry_delay', 2))
         
         if self.config['data_source']['fallback_to_sample']:
             self.logger.warning("All attempts failed, using sample data")
@@ -347,7 +298,6 @@ class NiftyAnalyzer:
             top_ce_strikes.append({
                 'strike': row['Strike'],
                 'oi': int(row['Call_OI']),
-                'chng_oi': int(row['Call_Chng_OI']),
                 'ltp': row['Call_LTP'],
                 'iv': row['Call_IV'],
                 'type': strike_type
@@ -361,73 +311,12 @@ class NiftyAnalyzer:
             top_pe_strikes.append({
                 'strike': row['Strike'],
                 'oi': int(row['Put_OI']),
-                'chng_oi': int(row['Put_Chng_OI']),
                 'ltp': row['Put_LTP'],
                 'iv': row['Put_IV'],
                 'type': strike_type
             })
         
         return {'top_ce_strikes': top_ce_strikes, 'top_pe_strikes': top_pe_strikes}
-    
-    def analyze_oi_changes(self, oc_df):
-        """Analyze OI changes from previous day"""
-        if oc_df is None or oc_df.empty:
-            return self.get_sample_oi_changes()
-        
-        total_call_oi_added = oc_df[oc_df['Call_Chng_OI'] > 0]['Call_Chng_OI'].sum()
-        total_call_oi_reduced = abs(oc_df[oc_df['Call_Chng_OI'] < 0]['Call_Chng_OI'].sum())
-        net_call_change = oc_df['Call_Chng_OI'].sum()
-        
-        total_put_oi_added = oc_df[oc_df['Put_Chng_OI'] > 0]['Put_Chng_OI'].sum()
-        total_put_oi_reduced = abs(oc_df[oc_df['Put_Chng_OI'] < 0]['Put_Chng_OI'].sum())
-        net_put_change = oc_df['Put_Chng_OI'].sum()
-        
-        oi_sentiment = "Neutral"
-        oi_strength = "Weak"
-        
-        if net_put_change > net_call_change:
-            if total_put_oi_added > total_put_oi_reduced * 1.5:
-                oi_sentiment = "Bullish"
-                oi_strength = "Strong" if net_put_change > 5000000 else "Moderate"
-            else:
-                oi_sentiment = "Bearish"
-                oi_strength = "Moderate"
-        elif net_call_change > net_put_change:
-            if total_call_oi_added > total_call_oi_reduced * 1.5:
-                oi_sentiment = "Bearish"
-                oi_strength = "Strong" if net_call_change > 5000000 else "Moderate"
-            else:
-                oi_sentiment = "Bullish"
-                oi_strength = "Moderate"
-        
-        self.logger.info(f"📊 OI Changes - Call: {net_call_change:+,.0f} | Put: {net_put_change:+,.0f}")
-        self.logger.info(f"📊 OI Sentiment: {oi_sentiment} ({oi_strength})")
-        
-        return {
-            'total_call_oi_added': int(total_call_oi_added),
-            'total_call_oi_reduced': int(total_call_oi_reduced),
-            'net_call_change': int(net_call_change),
-            'total_put_oi_added': int(total_put_oi_added),
-            'total_put_oi_reduced': int(total_put_oi_reduced),
-            'net_put_change': int(net_put_change),
-            'oi_sentiment': oi_sentiment,
-            'oi_strength': oi_strength,
-            'dominant_activity': 'Put Buildup' if abs(net_put_change) > abs(net_call_change) else 'Call Buildup'
-        }
-    
-    def get_sample_oi_changes(self):
-        """Return sample OI changes"""
-        return {
-            'total_call_oi_added': 8500000,
-            'total_call_oi_reduced': 3200000,
-            'net_call_change': 5300000,
-            'total_put_oi_added': 12000000,
-            'total_put_oi_reduced': 4500000,
-            'net_put_change': 7500000,
-            'oi_sentiment': 'Bullish',
-            'oi_strength': 'Strong',
-            'dominant_activity': 'Put Buildup'
-        }
     
     def analyze_option_chain(self, oc_df, spot_price):
         """Analyze option chain for trading signals"""
@@ -473,7 +362,6 @@ class NiftyAnalyzer:
         avg_put_iv = oc_df['Put_IV'].mean()
         
         top_strikes = self.get_top_strikes_by_oi(oc_df, spot_price)
-        oi_changes = self.analyze_oi_changes(oc_df)
         
         return {
             'pcr': round(pcr, 2),
@@ -486,8 +374,7 @@ class NiftyAnalyzer:
             'avg_put_iv': round(avg_put_iv, 2),
             'oi_sentiment': 'Bullish' if total_put_buildup > total_call_buildup else 'Bearish',
             'top_ce_strikes': top_strikes['top_ce_strikes'],
-            'top_pe_strikes': top_strikes['top_pe_strikes'],
-            'oi_changes': oi_changes
+            'top_pe_strikes': top_strikes['top_pe_strikes']
         }
     
     def get_sample_oc_analysis(self):
@@ -503,61 +390,70 @@ class NiftyAnalyzer:
             'avg_put_iv': 16.2,
             'oi_sentiment': 'Bullish',
             'top_ce_strikes': [
-                {'strike': 24500, 'oi': 5000000, 'chng_oi': 500000, 'ltp': 120, 'iv': 16.5, 'type': 'ATM'},
-                {'strike': 24600, 'oi': 4500000, 'chng_oi': 300000, 'ltp': 80, 'iv': 15.8, 'type': 'OTM'},
-                {'strike': 24550, 'oi': 4200000, 'chng_oi': 200000, 'ltp': 95, 'iv': 16.0, 'type': 'OTM'},
-                {'strike': 24450, 'oi': 3800000, 'chng_oi': -100000, 'ltp': 145, 'iv': 16.8, 'type': 'ITM'},
-                {'strike': 24400, 'oi': 3500000, 'chng_oi': 150000, 'ltp': 170, 'iv': 17.0, 'type': 'ITM'},
+                {'strike': 24500, 'oi': 5000000, 'ltp': 120, 'iv': 16.5, 'type': 'ATM'},
+                {'strike': 24600, 'oi': 4500000, 'ltp': 80, 'iv': 15.8, 'type': 'OTM'},
             ],
             'top_pe_strikes': [
-                {'strike': 24500, 'oi': 5500000, 'chng_oi': 700000, 'ltp': 110, 'iv': 16.0, 'type': 'ATM'},
-                {'strike': 24400, 'oi': 5000000, 'chng_oi': 600000, 'ltp': 75, 'iv': 15.5, 'type': 'OTM'},
-                {'strike': 24450, 'oi': 4700000, 'chng_oi': 400000, 'ltp': 90, 'iv': 15.7, 'type': 'OTM'},
-                {'strike': 24550, 'oi': 4300000, 'chng_oi': -200000, 'ltp': 135, 'iv': 16.5, 'type': 'ITM'},
-                {'strike': 24600, 'oi': 4000000, 'chng_oi': 100000, 'ltp': 160, 'iv': 16.8, 'type': 'ITM'},
-            ],
-            'oi_changes': self.get_sample_oi_changes()
+                {'strike': 24500, 'oi': 5500000, 'ltp': 110, 'iv': 16.0, 'type': 'ATM'},
+                {'strike': 24400, 'oi': 5000000, 'ltp': 75, 'iv': 15.5, 'type': 'OTM'},
+            ]
         }
-    
-    # [Rest of the methods remain the same - technical_analysis, generate_recommendation, create_html_report, etc.]
-    # (Copying from previous complete script to keep response concise)
     
     def run_analysis(self):
         """Run complete analysis"""
-        self.logger.info("🚀 Starting Nifty Analysis with proven NSE fetch method...")
+        self.logger.info("🚀 Starting Nifty Analysis with proven NSE fetch...")
         self.logger.info("=" * 60)
-        
-        prev_trading_day = self.get_previous_trading_day()
         
         oc_df, spot_price = self.fetch_option_chain()
         
         if oc_df is not None and spot_price is not None:
             oc_analysis = self.analyze_option_chain(oc_df, spot_price)
+            
+            # Print Top 5 Call Options
+            print("\n" + "="*70)
+            print("📞 TOP 5 CALL OPTIONS (by Open Interest)")
+            print("="*70)
+            print(f"{'#':<4} {'Strike':<10} {'OI':<15} {'LTP':<10} {'IV':<10} {'Type':<8}")
+            print("-" * 70)
+            for i, strike in enumerate(oc_analysis['top_ce_strikes'], 1):
+                print(f"{i:<4} ₹{strike['strike']:<9,.0f} {strike['oi']:<15,} ₹{strike['ltp']:<9.2f} {strike['iv']:<9.1f}% {strike['type']:<8}")
+            
+            # Print Top 5 Put Options
+            print("\n" + "="*70)
+            print("📉 TOP 5 PUT OPTIONS (by Open Interest)")
+            print("="*70)
+            print(f"{'#':<4} {'Strike':<10} {'OI':<15} {'LTP':<10} {'IV':<10} {'Type':<8}")
+            print("-" * 70)
+            for i, strike in enumerate(oc_analysis['top_pe_strikes'], 1):
+                print(f"{i:<4} ₹{strike['strike']:<9,.0f} {strike['oi']:<15,} ₹{strike['ltp']:<9.2f} {strike['iv']:<9.1f}% {strike['type']:<8}")
+            
+            print("\n" + "="*70)
+            print(f"📊 NIFTY Spot: ₹{spot_price:,.2f}")
+            print(f"📊 PCR Ratio: {oc_analysis['pcr']}")
+            print(f"📊 Max Pain: ₹{oc_analysis['max_pain']:,.0f}")
+            print(f"📊 OI Sentiment: {oc_analysis['oi_sentiment']}")
+            print("="*70)
         else:
             spot_price = 25796
             oc_analysis = self.get_sample_oc_analysis()
+            print("\n⚠️ Using sample data (NSE fetch failed)")
         
         self.logger.info("=" * 60)
         
         return {
             'oc_analysis': oc_analysis,
-            'spot_price': spot_price,
-            'previous_trading_day': prev_trading_day
+            'spot_price': spot_price
         }
 
 
 if __name__ == "__main__":
-    print("\n📌 NOTE: This script uses your proven NSE fetch method!")
-    print("For best results, install: pip install curl-cffi\n")
+    print("\n" + "="*70)
+    print("📊 NIFTY OPTION CHAIN ANALYZER - WORKING VERSION")
+    print("="*70)
+    print("📌 For best results: pip install curl-cffi")
+    print("="*70 + "\n")
     
     analyzer = NiftyAnalyzer(config_path='config.yml')
     result = analyzer.run_analysis()
     
-    print(f"\n✅ Analysis Complete!")
-    print(f"Spot Price: ₹{result['spot_price']}")
-    
-    oi_changes = result['oc_analysis'].get('oi_changes', {})
-    print(f"\nOI Changes from {result['previous_trading_day']}:")
-    print(f"Call OI Change: {oi_changes.get('net_call_change', 0):+,}")
-    print(f"Put OI Change: {oi_changes.get('net_put_change', 0):+,}")
-    print(f"OI Sentiment: {oi_changes.get('oi_sentiment', 'N/A')} ({oi_changes.get('oi_strength', 'N/A')})")
+    print(f"\n✅ Analysis Complete!\n")
