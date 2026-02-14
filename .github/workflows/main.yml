@@ -2,10 +2,10 @@ name: Nifty Trading Analyzer
 
 on:
   schedule:
-  # 1. Starts at 04:15 UTC (09:45 IST) and runs every 30 mins until 04:45 UTC
+    # 1. Starts at 04:15 UTC (09:45 IST) and runs every 30 mins until 04:45 UTC
     - cron: '15,45 4 * * 1-5'
     
-    # 2. Runs at :15 and :45 past the hour from 05:00 UTC to 09:00 UTC
+    # 2. Runs at :17 and :47 past the hour from 05:00 UTC to 09:00 UTC
     # (10:30 IST to 14:30 IST)
     - cron: '17,47 5-9 * * 1-5'
   
@@ -28,7 +28,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  PYTHON_VERSION: '3.10'
+  PYTHON_VERSION: '3.11'
 
 jobs:
   analyze:
@@ -48,12 +48,17 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           
+          # Install curl-cffi first (CRITICAL for NSE API)
+          pip install curl-cffi
+          
+          # Install other dependencies
           if [ -f "requirements.txt" ]; then
             pip install -r requirements.txt
           else
-            pip install pandas numpy yfinance requests beautifulsoup4 pyyaml
+            pip install pandas numpy yfinance pytz pyyaml
           fi
           
+          echo "✅ Dependencies installed"
           pip list
       
       - name: Create config.yml
@@ -76,6 +81,8 @@ jobs:
             ema_long: 50
             num_support_levels: 2
             num_resistance_levels: 2
+            momentum_threshold_strong: 0.5
+            momentum_threshold_moderate: 0.2
           
           option_chain:
             pcr_bullish: 1.0
@@ -84,15 +91,18 @@ jobs:
             pcr_very_bearish: 0.8
             strike_range: 500
             min_oi: 100000
+            top_strikes_count: 5
           
           recommendation:
             strong_buy_threshold: 3
             buy_threshold: 1
             sell_threshold: -1
             strong_sell_threshold: -3
+            momentum_5h_weight: 2
+            momentum_1h_weight: 1
           
           report:
-            title: "NIFTY DAY TRADING ANALYSIS"
+            title: "NIFTY DAY TRADING ANALYSIS (1H)"
             save_local: true
             local_dir: "./reports"
             filename_format: "nifty_analysis_%Y%m%d_%H%M%S.html"
@@ -108,7 +118,7 @@ jobs:
             technical_source: "yahoo"
             max_retries: 3
             retry_delay: 2
-            timeout: 10
+            timeout: 30
             fallback_to_sample: true
           
           logging:
@@ -122,6 +132,7 @@ jobs:
             debug: false
             validate_data: true
             min_data_points: 100
+            use_momentum_filter: true
           CONFIG_EOF
           
           echo "=== Config created ==="
@@ -136,15 +147,30 @@ jobs:
       - name: Run Analysis
         id: analysis
         run: |
-          if [ -f "nifty_analyzer_with_yaml.py" ]; then
+          echo "🚀 Starting Nifty Analysis..."
+          
+          # Try to find and run the correct Python script
+          if [ -f "nifty_analyzer_complete.py" ]; then
+            echo "✅ Found nifty_analyzer_complete.py"
+            python nifty_analyzer_complete.py
+          elif [ -f "nifty_analyzer_with_top_oi.py" ]; then
+            echo "✅ Found nifty_analyzer_with_top_oi.py"
+            python nifty_analyzer_with_top_oi.py
+          elif [ -f "nifty_analyzer_with_yaml.py" ]; then
+            echo "✅ Found nifty_analyzer_with_yaml.py"
             python nifty_analyzer_with_yaml.py
           elif [ -f "nifty_trading_analyzer.py" ]; then
+            echo "✅ Found nifty_trading_analyzer.py"
             python nifty_trading_analyzer.py
           else
-            echo "ERROR: Python script not found!"
+            echo "❌ ERROR: No compatible Python script found!"
+            echo "Looking for: nifty_analyzer_complete.py, nifty_analyzer_with_top_oi.py, nifty_analyzer_with_yaml.py, or nifty_trading_analyzer.py"
+            echo "Available Python files:"
             ls -la *.py
             exit 1
           fi
+          
+          echo "✅ Analysis complete"
         continue-on-error: true
       
       - name: Prepare GitHub Pages
@@ -338,7 +364,7 @@ jobs:
               <title>Nifty Option Chain Analysis</title>
               <style>
                   body {
-                      font-family: Arial, sans-serif;
+                      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
                       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
                       display: flex;
                       justify-content: center;
@@ -362,13 +388,23 @@ jobs:
                       color: #666;
                       line-height: 1.6;
                   }
+                  .status {
+                      background-color: #fff3cd;
+                      border: 1px solid #ffc107;
+                      border-radius: 5px;
+                      padding: 15px;
+                      margin-top: 20px;
+                  }
               </style>
           </head>
           <body>
               <div class="container">
                   <h1>📊 Nifty Option Chain Analysis</h1>
                   <p>Analysis reports will appear here once the workflow runs successfully.</p>
-                  <p>The analyzer runs at 9:15 AM, 12:00 PM, and 3:00 PM IST on weekdays.</p>
+                  <div class="status">
+                      <p><strong>⏰ Analysis Schedule:</strong></p>
+                      <p>Reports are auto-generated during market hours (9:45 AM - 3:30 PM IST) on weekdays.</p>
+                  </div>
               </div>
           </body>
           </html>
@@ -388,10 +424,7 @@ jobs:
           Browse historical reports: [archive.html](archive.html)
           
           ## Schedule
-          Reports are generated at:
-          - 9:15 AM IST
-          - 12:00 PM IST
-          - 3:00 PM IST
+          Reports are generated during market hours (9:45 AM - 3:30 PM IST) on weekdays.
           
           *Auto-updated via GitHub Actions*
           README_EOF
@@ -403,16 +436,20 @@ jobs:
         if: always()
         run: |
           echo "=== Generated Reports ==="
-          ls -lah reports/ 2>/dev/null || echo "No reports"
+          ls -lah reports/ 2>/dev/null || echo "No reports directory"
           
-          echo "=== GitHub Pages ==="
-          ls -lah docs/ 2>/dev/null || echo "No docs"
+          echo "=== GitHub Pages (docs) ==="
+          ls -lah docs/ 2>/dev/null || echo "No docs directory"
           
           echo "=== Logs ==="
-          ls -lah logs/ 2>/dev/null || echo "No logs"
+          ls -lah logs/ 2>/dev/null || echo "No logs directory"
           
-          echo "=== Log Content ==="
-          cat logs/nifty_analyzer.log 2>/dev/null || echo "No log file"
+          if [ -f "logs/nifty_analyzer.log" ]; then
+            echo "=== Last 30 Log Lines ==="
+            tail -30 logs/nifty_analyzer.log
+          else
+            echo "⚠️ No log file found"
+          fi
       
       - name: Upload Reports as Artifacts
         if: always()
@@ -421,7 +458,7 @@ jobs:
           name: nifty-reports-${{ github.run_number }}
           path: |
             reports/*.html
-            *.html
+            docs/*.html
           if-no-files-found: warn
           retention-days: 30
       
@@ -445,7 +482,7 @@ jobs:
           force_orphan: true
           user_name: 'github-actions[bot]'
           user_email: 'github-actions[bot]@users.noreply.github.com'
-          commit_message: 'Deploy Nifty Analysis Report - ${{ github.run_number }}'
+          commit_message: 'Deploy Nifty Analysis Report - Run #${{ github.run_number }}'
       
       - name: Summary
         if: always()
@@ -480,3 +517,4 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "---" >> $GITHUB_STEP_SUMMARY
           echo "*Report deployed to GitHub Pages automatically*" >> $GITHUB_STEP_SUMMARY
+          echo "*Powered by curl-cffi for NSE API access*" >> $GITHUB_STEP_SUMMARY
