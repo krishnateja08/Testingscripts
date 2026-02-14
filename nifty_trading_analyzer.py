@@ -3,7 +3,8 @@ Nifty Option Chain & Technical Analysis for Day Trading
 COMPLETE VERSION - Both 1H and 5H Momentum Side-by-Side
 1-HOUR TIMEFRAME with WILDER'S RSI (matches TradingView)
 Enhanced with Pivot Points + Dual Momentum Analysis + Top 10 OI Display
-FIXED: Correct NSE API v3 URL with automatic expiry date calculation
+EXPIRY: Weekly TUESDAY expiry with 3:30 PM IST cutoff logic
+FIXED: Correct NSE API v3 URL with automatic Tuesday expiry date calculation
 """
 
 import pandas as pd
@@ -42,36 +43,44 @@ class NiftyAnalyzer:
     
     def get_next_expiry_date(self):
         """
-        Calculate the next NIFTY expiry date (Weekly Thursday)
-        If today is Friday and market is closed, return next week's Thursday
+        Calculate the next NIFTY expiry date (Weekly Tuesday)
+        If today is Tuesday after 3:30 PM, return next week's Tuesday
+        Logic: Every Tuesday is expiry. After 3:30 PM on Tuesday, switch to next Tuesday.
         """
         now_ist = self.get_ist_time()
-        current_day = now_ist.weekday()  # 0=Monday, 4=Friday, 3=Thursday
+        current_day = now_ist.weekday()  # 0=Monday, 1=Tuesday, 2=Wednesday, 3=Thursday, 4=Friday, 5=Saturday, 6=Sunday
         
-        # NIFTY weekly expiry is on Thursday (weekday=3)
-        if current_day < 3:
-            # Monday to Wednesday - this week's Thursday
-            days_until_thursday = 3 - current_day
-        elif current_day == 3:
-            # Thursday - check if market hours (9:15 AM to 3:30 PM)
+        # NIFTY weekly expiry is on TUESDAY (weekday=1)
+        if current_day == 1:
+            # It's Tuesday - check if before 3:30 PM
             current_hour = now_ist.hour
             current_minute = now_ist.minute
             
-            # If it's after 3:30 PM, move to next Thursday
-            if current_hour > 15 or (current_hour == 15 and current_minute >= 30):
-                days_until_thursday = 7
+            # If it's before 3:30 PM, today is expiry
+            if current_hour < 15 or (current_hour == 15 and current_minute < 30):
+                days_until_tuesday = 0
+                self.logger.info(f"📅 Today is Tuesday before 3:30 PM - Using today as expiry")
             else:
-                days_until_thursday = 0  # Today is expiry
+                # After 3:30 PM on Tuesday, move to next Tuesday (7 days)
+                days_until_tuesday = 7
+                self.logger.info(f"📅 Tuesday after 3:30 PM - Moving to next Tuesday")
+        elif current_day == 0:
+            # Monday - tomorrow is Tuesday (1 day)
+            days_until_tuesday = 1
         else:
-            # Friday to Sunday - next week's Thursday
-            days_until_thursday = (7 - current_day) + 3
+            # For any other day (Wed, Thu, Fri, Sat, Sun), calculate days to next Tuesday
+            # Formula: (1 - current_day) % 7 where 1 is Tuesday
+            # This gives: Wed(2)→6 days, Thu(3)→5 days, Fri(4)→4 days, Sat(5)→3 days, Sun(6)→2 days
+            days_until_tuesday = (1 - current_day) % 7
+            if days_until_tuesday == 0:
+                days_until_tuesday = 7
         
-        expiry_date = now_ist + timedelta(days=days_until_thursday)
+        expiry_date = now_ist + timedelta(days=days_until_tuesday)
         
         # Format as DD-MMM-YYYY (e.g., 17-Feb-2026)
         expiry_str = expiry_date.strftime('%d-%b-%Y')
         
-        self.logger.info(f"📅 Next NIFTY Expiry: {expiry_str}")
+        self.logger.info(f"📅 Next NIFTY Expiry: {expiry_str} ({expiry_date.strftime('%A')})")
         return expiry_str
     
     def get_ist_time(self):
