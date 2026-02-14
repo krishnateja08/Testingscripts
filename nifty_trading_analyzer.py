@@ -2,7 +2,7 @@
 Nifty Option Chain & Technical Analysis for Day Trading
 COMPLETE VERSION - Both 1H and 5H Momentum Side-by-Side
 1-HOUR TIMEFRAME with WILDER'S RSI (matches TradingView)
-Enhanced with Pivot Points + Dual Momentum Analysis
+Enhanced with Pivot Points + Dual Momentum Analysis + Top 10 OI Display
 FIXED: Correct NSE API v3 URL with automatic expiry date calculation
 """
 
@@ -290,7 +290,9 @@ class NiftyAnalyzer:
                 'oi': int(row['Call_OI']),
                 'ltp': row['Call_LTP'],
                 'iv': row['Call_IV'],
-                'type': strike_type
+                'type': strike_type,
+                'chng_oi': int(row['Call_Chng_OI']),
+                'volume': int(row['Call_Volume'])
             })
         
         pe_data = oc_df[oc_df['Put_OI'] > 0].copy()
@@ -303,7 +305,9 @@ class NiftyAnalyzer:
                 'oi': int(row['Put_OI']),
                 'ltp': row['Put_LTP'],
                 'iv': row['Put_IV'],
-                'type': strike_type
+                'type': strike_type,
+                'chng_oi': int(row['Put_Chng_OI']),
+                'volume': int(row['Put_Volume'])
             })
         
         return {'top_ce_strikes': top_ce_strikes, 'top_pe_strikes': top_pe_strikes}
@@ -380,18 +384,18 @@ class NiftyAnalyzer:
             'avg_put_iv': 16.2,
             'oi_sentiment': 'Bullish',
             'top_ce_strikes': [
-                {'strike': 24500, 'oi': 5000000, 'ltp': 120, 'iv': 16.5, 'type': 'ATM'},
-                {'strike': 24600, 'oi': 4500000, 'ltp': 80, 'iv': 15.8, 'type': 'OTM'},
-                {'strike': 24550, 'oi': 4200000, 'ltp': 95, 'iv': 16.0, 'type': 'OTM'},
-                {'strike': 24450, 'oi': 3800000, 'ltp': 145, 'iv': 16.8, 'type': 'ITM'},
-                {'strike': 24400, 'oi': 3500000, 'ltp': 170, 'iv': 17.0, 'type': 'ITM'},
+                {'strike': 24500, 'oi': 5000000, 'ltp': 120, 'iv': 16.5, 'type': 'ATM', 'chng_oi': 500000, 'volume': 125000},
+                {'strike': 24600, 'oi': 4500000, 'ltp': 80, 'iv': 15.8, 'type': 'OTM', 'chng_oi': 450000, 'volume': 110000},
+                {'strike': 24550, 'oi': 4200000, 'ltp': 95, 'iv': 16.0, 'type': 'OTM', 'chng_oi': 420000, 'volume': 105000},
+                {'strike': 24450, 'oi': 3800000, 'ltp': 145, 'iv': 16.8, 'type': 'ITM', 'chng_oi': 380000, 'volume': 95000},
+                {'strike': 24400, 'oi': 3500000, 'ltp': 170, 'iv': 17.0, 'type': 'ITM', 'chng_oi': 350000, 'volume': 90000},
             ],
             'top_pe_strikes': [
-                {'strike': 24500, 'oi': 5500000, 'ltp': 110, 'iv': 16.0, 'type': 'ATM'},
-                {'strike': 24400, 'oi': 5000000, 'ltp': 75, 'iv': 15.5, 'type': 'OTM'},
-                {'strike': 24450, 'oi': 4700000, 'ltp': 90, 'iv': 15.7, 'type': 'OTM'},
-                {'strike': 24550, 'oi': 4300000, 'ltp': 135, 'iv': 16.5, 'type': 'ITM'},
-                {'strike': 24600, 'oi': 4000000, 'ltp': 160, 'iv': 16.8, 'type': 'ITM'},
+                {'strike': 24500, 'oi': 5500000, 'ltp': 110, 'iv': 16.0, 'type': 'ATM', 'chng_oi': 550000, 'volume': 130000},
+                {'strike': 24400, 'oi': 5000000, 'ltp': 75, 'iv': 15.5, 'type': 'OTM', 'chng_oi': 500000, 'volume': 120000},
+                {'strike': 24450, 'oi': 4700000, 'ltp': 90, 'iv': 15.7, 'type': 'OTM', 'chng_oi': 470000, 'volume': 115000},
+                {'strike': 24550, 'oi': 4300000, 'ltp': 135, 'iv': 16.5, 'type': 'ITM', 'chng_oi': 430000, 'volume': 100000},
+                {'strike': 24600, 'oi': 4000000, 'ltp': 160, 'iv': 16.8, 'type': 'ITM', 'chng_oi': 400000, 'volume': 95000},
             ]
         }
     
@@ -968,7 +972,7 @@ class NiftyAnalyzer:
         }
     
     def create_html_report(self, oc_analysis, tech_analysis, recommendation):
-        """Create beautiful HTML report with DUAL MOMENTUM SIDE-BY-SIDE"""
+        """Create beautiful HTML report with DUAL MOMENTUM SIDE-BY-SIDE and TOP 10 OI"""
         now_ist = self.format_ist_time()
         
         colors = self.config['report'].get('colors', {})
@@ -1005,6 +1009,45 @@ class NiftyAnalyzer:
         momentum_5h_colors = tech_analysis.get('momentum_5h_colors', {
             'bg': '#6c757d', 'bg_dark': '#5a6268', 'text': '#ffffff', 'border': '#495057'
         })
+        
+        # ==================== TOP 10 OI TABLE HTML ====================
+        top_ce_strikes = oc_analysis.get('top_ce_strikes', [])
+        top_pe_strikes = oc_analysis.get('top_pe_strikes', [])
+        
+        # Build Call Options (CE) rows
+        ce_rows_html = ''
+        for idx, strike in enumerate(top_ce_strikes, 1):
+            badge_class = f"badge-{strike['type'].lower()}"
+            ce_rows_html += f"""
+                    <tr>
+                        <td>{idx}</td>
+                        <td><strong>₹{strike['strike']}</strong></td>
+                        <td><span class="{badge_class}">{strike['type']}</span></td>
+                        <td>{strike['oi']:,}</td>
+                        <td>{strike['chng_oi']:,}</td>
+                        <td>₹{strike['ltp']:.2f}</td>
+                        <td>{strike['iv']:.2f}%</td>
+                        <td>{strike['volume']:,}</td>
+                    </tr>
+            """
+        
+        # Build Put Options (PE) rows
+        pe_rows_html = ''
+        for idx, strike in enumerate(top_pe_strikes, 1):
+            badge_class = f"badge-{strike['type'].lower()}"
+            pe_rows_html += f"""
+                    <tr>
+                        <td>{idx}</td>
+                        <td><strong>₹{strike['strike']}</strong></td>
+                        <td><span class="{badge_class}">{strike['type']}</span></td>
+                        <td>{strike['oi']:,}</td>
+                        <td>{strike['chng_oi']:,}</td>
+                        <td>₹{strike['ltp']:.2f}</td>
+                        <td>{strike['iv']:.2f}%</td>
+                        <td>{strike['volume']:,}</td>
+                    </tr>
+            """
+        # ==============================================================
         
         # Strategies HTML
         strategies_html = ''
@@ -1136,12 +1179,22 @@ class NiftyAnalyzer:
         .signal-badge {{ display: inline-block; padding: 3px 10px; border-radius: 15px; font-size: 12px; margin: 4px; font-weight: 600; }}
         .bullish {{ background-color: #d4edda; color: #155724; }}
         .bearish {{ background-color: #f8d7da; color: #721c24; }}
-        .oi-table {{ width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12px; }}
-        .oi-table th {{ background-color: #007bff; color: white; padding: 6px 4px; text-align: left; font-size: 11px; font-weight: 600; }}
-        .oi-table td {{ padding: 6px 4px; border-bottom: 1px solid #e9ecef; font-size: 12px; }}
-        .badge-itm {{ background-color: #28a745; color: white; padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: bold; }}
-        .badge-atm {{ background-color: #ffc107; color: #000; padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: bold; }}
-        .badge-otm {{ background-color: #dc3545; color: white; padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: bold; }}
+        
+        /* TOP 10 OI TABLE STYLES */
+        .oi-container {{ overflow-x: auto; -webkit-overflow-scrolling: touch; margin-top: 15px; }}
+        .oi-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 12px; }}
+        .oi-section {{ background-color: #f8f9fa; padding: 12px; border-radius: 8px; }}
+        .oi-section h4 {{ margin: 0 0 10px 0; font-size: 14px; font-weight: 700; text-align: center; }}
+        .oi-section.calls {{ border-top: 4px solid #28a745; }}
+        .oi-section.puts {{ border-top: 4px solid #dc3545; }}
+        .oi-table {{ width: 100%; border-collapse: collapse; font-size: 11px; }}
+        .oi-table th {{ background-color: #007bff; color: white; padding: 6px 4px; text-align: center; font-size: 10px; font-weight: 600; white-space: nowrap; }}
+        .oi-table td {{ padding: 6px 4px; border-bottom: 1px solid #e9ecef; text-align: center; font-size: 11px; }}
+        .oi-table tbody tr:hover {{ background-color: #e7f3ff; }}
+        .badge-itm {{ background-color: #28a745; color: white; padding: 2px 6px; border-radius: 3px; font-size: 9px; font-weight: bold; }}
+        .badge-atm {{ background-color: #ffc107; color: #000; padding: 2px 6px; border-radius: 3px; font-size: 9px; font-weight: bold; }}
+        .badge-otm {{ background-color: #6c757d; color: white; padding: 2px 6px; border-radius: 3px; font-size: 9px; font-weight: bold; }}
+        
         .strategies-grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; margin-top: 12px; }}
         .strategy-card {{ background-color: #ffffff; border: 2px solid #e9ecef; border-radius: 8px; padding: 10px; }}
         .strategy-header {{ border-bottom: 2px solid #007bff; padding-bottom: 6px; margin-bottom: 6px; }}
@@ -1163,6 +1216,7 @@ class NiftyAnalyzer:
             .data-item .value {{ font-size: 14px; }}
             .levels {{ flex-direction: column; }}
             .levels-box {{ min-width: 100%; }}
+            .oi-grid {{ grid-template-columns: 1fr; }}
         }}
         
         @media (max-width: 480px) {{
@@ -1175,6 +1229,9 @@ class NiftyAnalyzer:
             .recommendation-box {{ padding: 10px; }}
             .recommendation-box h2 {{ font-size: 20px; }}
             .data-grid {{ grid-template-columns: 1fr; }}
+            .oi-table {{ font-size: 9px; }}
+            .oi-table th {{ font-size: 9px; padding: 4px 2px; }}
+            .oi-table td {{ font-size: 9px; padding: 4px 2px; }}
         }}
     </style>
 </head>
@@ -1305,6 +1362,60 @@ class NiftyAnalyzer:
             </div>
         </div>
         
+        <!-- TOP 10 OPEN INTEREST SECTION -->
+        <div class="section">
+            <div class="section-title">🔥 Top 10 Open Interest (5 CE + 5 PE)</div>
+            <div class="oi-grid">
+                <!-- Call Options (CE) -->
+                <div class="oi-section calls">
+                    <h4>📞 Top 5 Call Options (CE)</h4>
+                    <div class="oi-container">
+                        <table class="oi-table">
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>Strike</th>
+                                    <th>Type</th>
+                                    <th>OI</th>
+                                    <th>Chng OI</th>
+                                    <th>LTP</th>
+                                    <th>IV</th>
+                                    <th>Volume</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+{ce_rows_html}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                
+                <!-- Put Options (PE) -->
+                <div class="oi-section puts">
+                    <h4>📉 Top 5 Put Options (PE)</h4>
+                    <div class="oi-container">
+                        <table class="oi-table">
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>Strike</th>
+                                    <th>Type</th>
+                                    <th>OI</th>
+                                    <th>Chng OI</th>
+                                    <th>LTP</th>
+                                    <th>IV</th>
+                                    <th>Volume</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+{pe_rows_html}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
         <div class="section">
             <div class="section-title">💡 Analysis Summary</div>
             <div class="reasons">
@@ -1321,7 +1432,7 @@ class NiftyAnalyzer:
         
         <div class="footer">
             <p><strong>Disclaimer:</strong> This analysis is for educational purposes only. Trading involves risk.</p>
-            <p>© 2025 Nifty Trading Analyzer | Dual Momentum Analysis (1H + 5H)</p>
+            <p>© 2025 Nifty Trading Analyzer | Dual Momentum Analysis (1H + 5H) with Top OI Display</p>
         </div>
     </div>
 </body>
