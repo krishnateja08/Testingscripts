@@ -1,0 +1,658 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        * { box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f5f5f5; margin: 0; padding: 10px; }
+        .container { max-width: 1200px; margin: 0 auto; background-color: white; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); padding: 20px; }
+        .header { text-align: center; border-bottom: 3px solid #007bff; padding-bottom: 15px; margin-bottom: 20px; }
+        .header h1 { color: #007bff; margin: 0; font-size: 24px; }
+        .timestamp { color: #6c757d; font-size: 12px; margin-top: 8px; font-weight: bold; }
+        .timeframe-badge { display: inline-block; background: #ff6b6b; color: white; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: bold; margin-top: 8px; }
+        
+        /* DUAL MOMENTUM BOXES - SIDE BY SIDE */
+        .momentum-container { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px; }
+        .momentum-box { 
+            background: linear-gradient(135deg, var(--momentum-bg) 0%, var(--momentum-bg-dark) 100%); 
+            color: var(--momentum-text); 
+            padding: 15px; 
+            border-radius: 10px; 
+            text-align: center; 
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+            border: 2px solid var(--momentum-border);
+        }
+        .momentum-box h3 { margin: 0 0 8px 0; font-size: 15px; font-weight: 700; color: var(--momentum-text); text-transform: uppercase; letter-spacing: 0.5px; }
+        .momentum-box .value { font-size: 32px; font-weight: 900; margin: 8px 0; color: var(--momentum-text); text-shadow: 1px 1px 2px rgba(0,0,0,0.1); }
+        .momentum-box .signal { font-size: 14px; margin-top: 5px; font-weight: 600; color: var(--momentum-text); }
+        
+        .recommendation-box { background: linear-gradient(135deg, #dc3545 0%, #dc3545dd 100%); color: white; padding: 15px; border-radius: 10px; text-align: center; margin-bottom: 20px; box-shadow: 0 4px 8px rgba(0,0,0,0.2); }
+        .recommendation-box h2 { margin: 0 0 6px 0; font-size: 26px; font-weight: bold; }
+        .recommendation-box .subtitle { font-size: 14px; opacity: 0.9; }
+        .section { margin-bottom: 20px; }
+        .section-title { background-color: #007bff; color: white; padding: 8px 15px; border-radius: 5px; font-size: 16px; font-weight: bold; margin-bottom: 12px; }
+        .data-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+        .data-item { background-color: #f8f9fa; padding: 10px 12px; border-radius: 8px; border-left: 4px solid #007bff; }
+        .data-item .label { color: #6c757d; font-size: 10px; margin-bottom: 4px; text-transform: uppercase; font-weight: 600; }
+        .data-item .value { color: #212529; font-size: 16px; font-weight: bold; }
+        .levels { display: flex; flex-wrap: wrap; gap: 15px; }
+        .levels-box { flex: 1; min-width: 250px; background-color: #f8f9fa; padding: 10px; border-radius: 8px; }
+        .levels-box.resistance { border-left: 4px solid #dc3545; }
+        .levels-box.support { border-left: 4px solid #28a745; }
+        .levels-box h4 { margin: 0 0 6px 0; font-size: 13px; font-weight: 600; }
+        .levels-box ul { margin: 0; padding-left: 20px; }
+        .levels-box li { margin: 4px 0; font-size: 13px; font-weight: 500; }
+        .pivot-container { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        .pivot-info { color: #6c757d; margin-bottom: 8px; font-size: 11px; line-height: 1.4; }
+        .pivot-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        .pivot-table th { background-color: #007bff; color: white; padding: 8px 6px; text-align: center; font-size: 12px; font-weight: 600; }
+        .pivot-table td { padding: 8px 6px; text-align: center; border-bottom: 1px solid #e9ecef; font-weight: 500; }
+        .pivot-row { background-color: #f8f9fa; }
+        .pivot-row.resistance { color: #dc3545; }
+        .pivot-row.support { color: #28a745; }
+        .pivot-row.pivot { background-color: #fff3cd; color: #856404; font-weight: bold; }
+        .nearest-resistance { background-color: #f8d7da !important; border: 2px solid #dc3545; }
+        .nearest-support { background-color: #d4edda !important; border: 2px solid #28a745; }
+        .highlight-badge { display: inline-block; background: #ff6b6b; color: white; padding: 2px 6px; border-radius: 8px; font-size: 9px; margin-left: 3px; font-weight: bold; }
+        .reasons { background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 10px; border-radius: 5px; }
+        .reasons ul { margin: 6px 0 0 0; padding-left: 20px; }
+        .reasons li { margin: 4px 0; color: #856404; font-size: 12px; }
+        .signal-badge { display: inline-block; padding: 3px 10px; border-radius: 15px; font-size: 12px; margin: 4px; font-weight: 600; }
+        .bullish { background-color: #d4edda; color: #155724; }
+        .bearish { background-color: #f8d7da; color: #721c24; }
+        
+        /* TOP 10 OI TABLE STYLES */
+        .oi-container { overflow-x: auto; -webkit-overflow-scrolling: touch; margin-top: 15px; }
+        .oi-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 12px; }
+        .oi-section { background-color: #f8f9fa; padding: 12px; border-radius: 8px; }
+        .oi-section h4 { margin: 0 0 10px 0; font-size: 14px; font-weight: 700; text-align: center; }
+        .oi-section.calls { border-top: 4px solid #28a745; }
+        .oi-section.puts { border-top: 4px solid #dc3545; }
+        .oi-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+        .oi-table th { background-color: #007bff; color: white; padding: 6px 4px; text-align: center; font-size: 10px; font-weight: 600; white-space: nowrap; }
+        .oi-table td { padding: 6px 4px; border-bottom: 1px solid #e9ecef; text-align: center; font-size: 11px; }
+        .oi-table tbody tr:hover { background-color: #e7f3ff; }
+        .badge-itm { background-color: #28a745; color: white; padding: 2px 6px; border-radius: 3px; font-size: 9px; font-weight: bold; }
+        .badge-atm { background-color: #ffc107; color: #000; padding: 2px 6px; border-radius: 3px; font-size: 9px; font-weight: bold; }
+        .badge-otm { background-color: #6c757d; color: white; padding: 2px 6px; border-radius: 3px; font-size: 9px; font-weight: bold; }
+        
+        /* STRIKE RECOMMENDATIONS STYLES */
+        .strike-recommendations { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 15px; margin-top: 15px; }
+        .strike-card { background-color: #ffffff; border: 2px solid #e9ecef; border-radius: 10px; padding: 15px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); transition: transform 0.2s; }
+        .strike-card:hover { transform: translateY(-3px); box-shadow: 0 4px 8px rgba(0,0,0,0.15); }
+        .strike-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #007bff; padding-bottom: 8px; margin-bottom: 12px; }
+        .strike-header h4 { margin: 0; color: #007bff; font-size: 16px; font-weight: 700; }
+        .strike-badge { display: inline-block; padding: 4px 10px; border-radius: 15px; font-size: 11px; font-weight: 600; }
+        .strike-badge.atm { background-color: #ffc107; color: #000; }
+        .strike-badge.itm { background-color: #28a745; color: white; }
+        .strike-badge.otm { background-color: #6c757d; color: white; }
+        .strike-badge.itm-otm { background: linear-gradient(90deg, #28a745 50%, #6c757d 50%); color: white; }
+        .strike-badge.atm-atm { background-color: #ff6b6b; color: white; }
+        .strike-badge.spread { background: linear-gradient(135deg, #007bff, #6610f2); color: white; }
+        .strike-badge.straddle { background: linear-gradient(135deg, #fd7e14, #e83e8c); color: white; }
+        .strike-details { background-color: #f8f9fa; padding: 10px; border-radius: 6px; margin-bottom: 12px; }
+        .strike-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px dashed #dee2e6; }
+        .strike-row:last-child { border-bottom: none; }
+        .strike-row .label { color: #6c757d; font-size: 12px; font-weight: 500; }
+        .strike-row .value { color: #212529; font-size: 13px; font-weight: 600; }
+        .strike-row .premium { color: #007bff; font-size: 14px; font-weight: 700; }
+        .profit-targets { background: linear-gradient(135deg, #e7f3ff 0%, #f8f9fa 100%); padding: 12px; border-radius: 6px; margin-bottom: 10px; }
+        .profit-targets h5 { margin: 0 0 10px 0; color: #007bff; font-size: 13px; font-weight: 700; }
+        .target-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+        .target-box { background-color: white; padding: 8px; border-radius: 6px; text-align: center; border: 2px solid #e9ecef; }
+        .target-box.target-1 { border-color: #28a745; }
+        .target-box.target-2 { border-color: #17a2b8; }
+        .target-box.stop-loss-box { border-color: #dc3545; }
+        .target-label { font-size: 10px; color: #6c757d; text-transform: uppercase; font-weight: 600; margin-bottom: 4px; }
+        .target-price { font-size: 14px; color: #212529; font-weight: 700; margin-bottom: 4px; }
+        .target-profit { font-size: 11px; color: #28a745; font-weight: 600; }
+        .target-box.stop-loss-box .target-profit { color: #dc3545; }
+        .trade-example { background-color: #fff3cd; border: 1px solid #ffc107; border-radius: 5px; padding: 10px; font-size: 11px; line-height: 1.5; color: #856404; }
+        .no-recommendations { background-color: #f8d7da; border: 1px solid #f5c6cb; border-radius: 5px; padding: 20px; text-align: center; color: #721c24; }
+        
+        .strategies-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; margin-top: 12px; }
+        .strategy-card { background-color: #ffffff; border: 2px solid #e9ecef; border-radius: 8px; padding: 10px; }
+        .strategy-header { border-bottom: 2px solid #007bff; padding-bottom: 6px; margin-bottom: 6px; }
+        .strategy-header h4 { margin: 0; color: #007bff; font-size: 14px; }
+        .strategy-type { display: inline-block; background-color: #e7f3ff; color: #007bff; padding: 2px 6px; border-radius: 10px; font-size: 10px; margin-top: 3px; }
+        .strategy-body p { margin: 5px 0; font-size: 12px; line-height: 1.4; }
+        .recommendation-stars { color: #ffc107; font-size: 13px; }
+        .footer { text-align: center; margin-top: 25px; padding-top: 15px; border-top: 2px solid #e9ecef; color: #6c757d; font-size: 11px; }
+        
+        /* Mobile Optimizations */
+        @media (max-width: 768px) {
+            .container { padding: 12px; }
+            .header h1 { font-size: 20px; }
+            .momentum-container { grid-template-columns: 1fr; gap: 10px; }
+            .momentum-box .value { font-size: 24px; }
+            .recommendation-box h2 { font-size: 22px; }
+            .section-title { font-size: 14px; padding: 6px 12px; }
+            .data-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+            .data-item .value { font-size: 14px; }
+            .levels { flex-direction: column; }
+            .levels-box { min-width: 100%; }
+            .oi-grid { grid-template-columns: 1fr; }
+            .strike-recommendations { grid-template-columns: 1fr; }
+            .target-grid { grid-template-columns: 1fr; }
+        }
+        
+        @media (max-width: 480px) {
+            body { padding: 5px; }
+            .container { padding: 8px; }
+            .header h1 { font-size: 18px; }
+            .timeframe-badge { font-size: 10px; padding: 3px 8px; }
+            .momentum-box h3 { font-size: 14px; }
+            .momentum-box .value { font-size: 20px; }
+            .recommendation-box { padding: 10px; }
+            .recommendation-box h2 { font-size: 20px; }
+            .data-grid { grid-template-columns: 1fr; }
+            .oi-table { font-size: 9px; }
+            .oi-table th { font-size: 9px; padding: 4px 2px; }
+            .oi-table td { font-size: 9px; padding: 4px 2px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📊 NIFTY DAY TRADING ANALYSIS (1H)</h1>
+            <div class="timeframe-badge">⏱️ 1-HOUR TIMEFRAME</div>
+            <div class="timestamp">Generated on: 2026-02-15 01:17:27 IST</div>
+        </div>
+        
+        <!-- DUAL MOMENTUM DISPLAY - SIDE BY SIDE -->
+        <div class="momentum-container">
+            <div class="momentum-box" style="--momentum-bg: #6c757d; --momentum-bg-dark: #5a6268; --momentum-text: #ffffff; --momentum-border: #495057;">
+                <h3>⚡ 1H Momentum</h3>
+                <div class="value">-0.07%</div>
+                <div class="signal">Sideways/Weak</div>
+            </div>
+            <div class="momentum-box" style="--momentum-bg: #fd7e14; --momentum-bg-dark: #e8590c; --momentum-text: #ffffff; --momentum-border: #dc3545;">
+                <h3>📊 5H Momentum</h3>
+                <div class="value">-0.44%</div>
+                <div class="signal">Moderate Downward</div>
+            </div>
+        </div>
+        
+        <div class="recommendation-box">
+            <h2>STRONG SELL</h2>
+            <div class="subtitle">Market Bias: Bearish | Confidence: High</div>
+            <div style="margin-top: 12px;">
+                <span class="signal-badge bullish">Bullish: 2</span>
+                <span class="signal-badge bearish">Bearish: 6</span>
+            </div>
+        </div>
+        
+        <div class="section">
+            <div class="section-title">📈 Technical Analysis (1H)</div>
+            <div class="data-grid">
+                <div class="data-item">
+                    <div class="label">Current Price</div>
+                    <div class="value">₹25460.55</div>
+                </div>
+                <div class="data-item">
+                    <div class="label">RSI (14)</div>
+                    <div class="value">23.18</div>
+                </div>
+                <div class="data-item">
+                    <div class="label">EMA 20</div>
+                    <div class="value">₹25690.32</div>
+                </div>
+                <div class="data-item">
+                    <div class="label">EMA 50</div>
+                    <div class="value">₹25717.93</div>
+                </div>
+                <div class="data-item">
+                    <div class="label">Trend</div>
+                    <div class="value">Strong Downtrend</div>
+                </div>
+                <div class="data-item">
+                    <div class="label">RSI Signal</div>
+                    <div class="value">Oversold - Bullish</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="section">
+            <div class="section-title">🎯 Support & Resistance (1H)</div>
+            <div class="levels">
+                <div class="levels-box resistance">
+                    <h4>🔴 Resistance</h4>
+                    <ul><li>R1: ₹25636.3</li><li>R2: ₹25791.3</li></ul>
+                </div>
+                <div class="levels-box support">
+                    <h4>🟢 Support</h4>
+                    <ul><li>S1: ₹25213.8</li><li>S2: ₹25168.5</li></ul>
+                </div>
+            </div>
+        </div>
+        
+        <div class="section">
+            <div class="section-title">📍 Pivot Points (Traditional - 30 Min)</div>
+            <p class="pivot-info">
+                Previous 30-min Candle: High ₹25534.55 | Low ₹25499.65 | Close ₹25521.25
+            </p>
+            <div class="pivot-container">
+                <table class="pivot-table">
+                    <thead>
+                        <tr>
+                            <th>Level</th>
+                            <th>Value</th>
+                            <th>Distance</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+
+                    <tr class="pivot-row resistance ">
+                        <td>R3</td>
+                        <td>₹25572.22</td>
+                        <td>+111.67</td>
+                    </tr>
+                    <tr class="pivot-row resistance ">
+                        <td>R2</td>
+                        <td>₹25553.38</td>
+                        <td>+92.83</td>
+                    </tr>
+                    <tr class="pivot-row resistance nearest-resistance">
+                        <td>R1</td>
+                        <td>₹25537.32 <span class="highlight-badge">NEAREST R</span></td>
+                        <td>+76.77</td>
+                    </tr>
+                    <tr class="pivot-row pivot">
+                        <td>PP</td>
+                        <td>₹25518.48</td>
+                        <td>+57.93</td>
+                    </tr>
+                    <tr class="pivot-row support ">
+                        <td>S1</td>
+                        <td>₹25502.42</td>
+                        <td>41.87</td>
+                    </tr>
+                    <tr class="pivot-row support ">
+                        <td>S2</td>
+                        <td>₹25483.58</td>
+                        <td>23.03</td>
+                    </tr>
+                    <tr class="pivot-row support ">
+                        <td>S3</td>
+                        <td>₹25467.52</td>
+                        <td>6.97</td>
+                    </tr>
+        
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        
+        <div class="section">
+            <div class="section-title">📊 Option Chain Analysis</div>
+            <div class="data-grid">
+                <div class="data-item">
+                    <div class="label">Put-Call Ratio</div>
+                    <div class="value">0.45</div>
+                </div>
+                <div class="data-item">
+                    <div class="label">Max Pain</div>
+                    <div class="value">₹26000</div>
+                </div>
+                <div class="data-item">
+                    <div class="label">OI Sentiment</div>
+                    <div class="value">Bearish</div>
+                </div>
+            </div>
+            
+            <div style="margin-top: 15px;">
+                <div class="levels">
+                    <div class="levels-box resistance">
+                        <h4>🔴 OI Resistance</h4>
+                        <ul><li>₹25900</li><li>₹25600</li></ul>
+                    </div>
+                    <div class="levels-box support">
+                        <h4>🟢 OI Support</h4>
+                        <ul><li>₹25300</li><li>₹25000</li></ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- TOP 10 OPEN INTEREST SECTION -->
+        <div class="section">
+            <div class="section-title">🔥 Top 10 Open Interest (5 CE + 5 PE)</div>
+            <div class="oi-grid">
+                <!-- Call Options (CE) -->
+                <div class="oi-section calls">
+                    <h4>📞 Top 5 Call Options (CE)</h4>
+                    <div class="oi-container">
+                        <table class="oi-table">
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>Strike</th>
+                                    <th>Type</th>
+                                    <th>OI</th>
+                                    <th>Chng OI</th>
+                                    <th>LTP</th>
+                                    <th>IV</th>
+                                    <th>Volume</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+
+                    <tr>
+                        <td>1</td>
+                        <td><strong>₹26000.0</strong></td>
+                        <td><span class="badge-otm">OTM</span></td>
+                        <td>257,910</td>
+                        <td>3,923</td>
+                        <td>₹16.50</td>
+                        <td>14.07%</td>
+                        <td>1,842,271</td>
+                    </tr>
+            
+                    <tr>
+                        <td>2</td>
+                        <td><strong>₹27000.0</strong></td>
+                        <td><span class="badge-otm">OTM</span></td>
+                        <td>250,630</td>
+                        <td>35,443</td>
+                        <td>₹2.75</td>
+                        <td>24.20%</td>
+                        <td>1,178,502</td>
+                    </tr>
+            
+                    <tr>
+                        <td>3</td>
+                        <td><strong>₹26500.0</strong></td>
+                        <td><span class="badge-otm">OTM</span></td>
+                        <td>208,114</td>
+                        <td>95,887</td>
+                        <td>₹6.00</td>
+                        <td>19.46%</td>
+                        <td>1,570,075</td>
+                    </tr>
+            
+                    <tr>
+                        <td>4</td>
+                        <td><strong>₹25600.0</strong></td>
+                        <td><span class="badge-otm">OTM</span></td>
+                        <td>197,301</td>
+                        <td>187,063</td>
+                        <td>₹62.10</td>
+                        <td>9.84%</td>
+                        <td>6,105,752</td>
+                    </tr>
+            
+                    <tr>
+                        <td>5</td>
+                        <td><strong>₹27500.0</strong></td>
+                        <td><span class="badge-otm">OTM</span></td>
+                        <td>188,982</td>
+                        <td>28,242</td>
+                        <td>₹1.80</td>
+                        <td>29.26%</td>
+                        <td>629,824</td>
+                    </tr>
+            
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                
+                <!-- Put Options (PE) -->
+                <div class="oi-section puts">
+                    <h4>📉 Top 5 Put Options (PE)</h4>
+                    <div class="oi-container">
+                        <table class="oi-table">
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>Strike</th>
+                                    <th>Type</th>
+                                    <th>OI</th>
+                                    <th>Chng OI</th>
+                                    <th>LTP</th>
+                                    <th>IV</th>
+                                    <th>Volume</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+
+                    <tr>
+                        <td>1</td>
+                        <td><strong>₹25000.0</strong></td>
+                        <td><span class="badge-otm">OTM</span></td>
+                        <td>127,581</td>
+                        <td>42,237</td>
+                        <td>₹20.00</td>
+                        <td>15.07%</td>
+                        <td>1,398,332</td>
+                    </tr>
+            
+                    <tr>
+                        <td>2</td>
+                        <td><strong>₹24500.0</strong></td>
+                        <td><span class="badge-otm">OTM</span></td>
+                        <td>116,570</td>
+                        <td>-14,129</td>
+                        <td>₹5.75</td>
+                        <td>20.06%</td>
+                        <td>833,716</td>
+                    </tr>
+            
+                    <tr>
+                        <td>3</td>
+                        <td><strong>₹24000.0</strong></td>
+                        <td><span class="badge-otm">OTM</span></td>
+                        <td>111,383</td>
+                        <td>22,854</td>
+                        <td>₹3.45</td>
+                        <td>26.44%</td>
+                        <td>529,294</td>
+                    </tr>
+            
+                    <tr>
+                        <td>4</td>
+                        <td><strong>₹25500.0</strong></td>
+                        <td><span class="badge-itm">ITM</span></td>
+                        <td>101,040</td>
+                        <td>18,828</td>
+                        <td>₹143.00</td>
+                        <td>13.40%</td>
+                        <td>8,367,890</td>
+                    </tr>
+            
+                    <tr>
+                        <td>5</td>
+                        <td><strong>₹25300.0</strong></td>
+                        <td><span class="badge-otm">OTM</span></td>
+                        <td>93,820</td>
+                        <td>26,712</td>
+                        <td>₹61.05</td>
+                        <td>13.05%</td>
+                        <td>2,336,105</td>
+                    </tr>
+            
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="section">
+            <div class="section-title">💡 Analysis Summary</div>
+            <div class="reasons">
+                <strong>Key Factors:</strong>
+                <ul><li>📉 5H Negative momentum: -0.44%</li><li>PCR at 0.45 indicates strong bearish sentiment</li><li>Call OI buildup > Put OI buildup (Bearish)</li><li>RSI at 23.2 - Oversold (Bullish reversal)</li><li>Trend: Strong Downtrend</li><li>Price below EMA20 (Bearish)</li></ul>
+            </div>
+        </div>
+        
+        <!-- DETAILED STRIKE RECOMMENDATIONS WITH PROFIT CALCULATIONS -->
+        <div class="section">
+            <div class="section-title">💰 Detailed Strike Recommendations with Profit Targets</div>
+            <p style="color: #6c757d; margin-bottom: 15px; font-size: 13px;">
+                <strong>Based on Bearish bias with current Nifty at ₹25460.55</strong><br>
+                These are actionable trades with specific strike prices, LTP, and profit calculations.
+            </p>
+            
+            <div class="strike-recommendations">
+
+                <div class="strike-card" style="border-left: 4px solid #ffc107;">
+                    <div class="strike-header">
+                        <h4>Long Put (ATM)</h4>
+                        <span class="strike-badge atm">ATM</span>
+                    </div>
+                    
+                    <div class="strike-details">
+                        <div class="strike-row">
+                            <span class="label">Action:</span>
+                            <span class="value"><strong>BUY</strong></span>
+                        </div>
+                        <div class="strike-row">
+                            <span class="label">Strike Price:</span>
+                            <span class="value"><strong>₹25500.0</strong></span>
+                        </div>
+                        <div class="strike-row">
+                            <span class="label">Current LTP:</span>
+                            <span class="value premium">₹143.00</span>
+                        </div>
+                        <div class="strike-row">
+                            <span class="label">Open Interest:</span>
+                            <span class="value">101040</span>
+                        </div>
+                        <div class="strike-row">
+                            <span class="label">Volume:</span>
+                            <span class="value">8367890</span>
+                        </div>
+                    </div>
+                    
+                    <div class="profit-targets">
+                        <h5>📊 Profit Targets & Risk</h5>
+                        <div class="target-grid">
+                            <div class="target-box target-1">
+                                <div class="target-label">Target 1</div>
+                                <div class="target-price">₹25400.0</div>
+                                <div class="target-profit">Profit: ₹-43.00</div>
+                            </div>
+                            <div class="target-box target-2">
+                                <div class="target-label">Target 2</div>
+                                <div class="target-price">₹25300.0</div>
+                                <div class="target-profit">Profit: ₹57.00</div>
+                            </div>
+                            <div class="target-box stop-loss-box">
+                                <div class="target-label">Stop Loss</div>
+                                <div class="target-price">₹42.90</div>
+                                <div class="target-profit">Max Loss: ₹143.00</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="trade-example">
+                        <strong>Example:</strong> If you buy 1 lot (50 qty) at LTP ₹143.00, your investment = ₹7150<br>
+                        At Target 1: Profit = ₹-2150 | At Target 2: Profit = ₹2850
+                    </div>
+                </div>
+                
+                <div class="strike-card" style="border-left: 4px solid #dc3545;">
+                    <div class="strike-header">
+                        <h4>Bear Put Spread</h4>
+                        <span class="strike-badge itm-otm">ITM/OTM</span>
+                    </div>
+                    
+                    <div class="strike-details">
+                        <div class="strike-row">
+                            <span class="label">Action:</span>
+                            <span class="value"><strong>BUY 25500.0 PE + SELL 25500.0 PE</strong></span>
+                        </div>
+                        <div class="strike-row">
+                            <span class="label">Strike Price:</span>
+                            <span class="value"><strong>₹25500.0/25500.0</strong></span>
+                        </div>
+                        <div class="strike-row">
+                            <span class="label">Current LTP:</span>
+                            <span class="value premium">₹0.00</span>
+                        </div>
+                        <div class="strike-row">
+                            <span class="label">Open Interest:</span>
+                            <span class="value">101,040 / 101,040</span>
+                        </div>
+                        <div class="strike-row">
+                            <span class="label">Volume:</span>
+                            <span class="value">8,367,890 / 8,367,890</span>
+                        </div>
+                    </div>
+                    
+                    <div class="profit-targets">
+                        <h5>📊 Profit Targets & Risk</h5>
+                        <div class="target-grid">
+                            <div class="target-box target-1">
+                                <div class="target-label">Target 1</div>
+                                <div class="target-price">₹25475.0</div>
+                                <div class="target-profit">Profit: ₹25.00</div>
+                            </div>
+                            <div class="target-box target-2">
+                                <div class="target-label">Target 2</div>
+                                <div class="target-price">₹25500.0</div>
+                                <div class="target-profit">Profit: ₹0.00</div>
+                            </div>
+                            <div class="target-box stop-loss-box">
+                                <div class="target-label">Stop Loss</div>
+                                <div class="target-price">₹0.00</div>
+                                <div class="target-profit">Max Loss: ₹0.00</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="trade-example">
+                        <strong>Example:</strong> If you buy 1 lot (50 qty) at LTP ₹0.00, your investment = ₹0<br>
+                        At Target 1: Profit = ₹1250 | At Target 2: Profit = ₹0
+                    </div>
+                </div>
+                
+            </div>
+        </div>
+        
+        <div class="section">
+            <div class="section-title">🎯 Options Strategies</div>
+            <p style="color: #6c757d; margin-bottom: 12px; font-size: 12px;">Based on Bearish bias:</p>
+            <div class="strategies-grid">
+                <div class="strategy-card">
+                    <div class="strategy-header">
+                        <h4>Long Put</h4>
+                        <span class="strategy-type">Bearish - Aggressive</span>
+                    </div>
+                    <div class="strategy-body">
+                        <p><strong>Setup:</strong> Buy ATM or slightly OTM Put option</p>
+                        <p><strong>Profit Potential:</strong> High (Strike - Stock price - Premium)</p>
+                        <p><strong>Risk:</strong> Limited to premium paid</p>
+                        <p><strong>Best When:</strong> Strong downward move expected, low IV</p>
+                        <p class="recommendation-stars"><strong>Recommended:</strong> ⭐⭐⭐⭐⭐</p>
+                    </div>
+                </div>
+            
+                <div class="strategy-card">
+                    <div class="strategy-header">
+                        <h4>Bear Put Spread</h4>
+                        <span class="strategy-type">Bearish - Debit Strategy</span>
+                    </div>
+                    <div class="strategy-body">
+                        <p><strong>Setup:</strong> Buy ITM Put + Sell OTM Put</p>
+                        <p><strong>Profit Potential:</strong> Limited (Strike difference - Net premium)</p>
+                        <p><strong>Risk:</strong> Limited to net premium paid</p>
+                        <p><strong>Best When:</strong> Moderately bearish, reduce cost</p>
+                        <p class="recommendation-stars"><strong>Recommended:</strong> ⭐⭐⭐</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="footer">
+            <p><strong>Disclaimer:</strong> This analysis is for educational purposes only. Trading involves risk.</p>
+            <p>© 2025 Nifty Trading Analyzer | Dual Momentum Analysis (1H + 5H) with Top OI Display</p>
+        </div>
+    </div>
+</body>
+</html>
+        
